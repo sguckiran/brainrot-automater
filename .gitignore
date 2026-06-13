@@ -1,4 +1,7 @@
 .DS_Store
+# social_video_factory runtime data root (jobs, chromium profile, downloads,
+# rendered media, logs, rate-limit state). Never a code artifact.
+.social_video_factory/
 /venv/
 /venv.old/
 /_pycache/

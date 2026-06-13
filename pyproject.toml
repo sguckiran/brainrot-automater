@@ -317,9 +317,14 @@ plugins = [
   "**/plugin.yml",
   "**/README.md",
 ]
+# social_video_factory.browser.selectors.load_selector_config() reads
+# browser_selectors.example.yaml from the installed package dir; wheels only
+# carry files declared here, so without this glob the bundled selector config
+# is missing on packaged installs and selector resolution falls back to nothing.
+social_video_factory = ["*.yaml"]
 
 [tool.setuptools.packages.find]
-include = ["agent", "agent.*", "tools", "tools.*", "hermes_cli", "hermes_cli.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "cron.*", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*"]
+include = ["agent", "agent.*", "tools", "tools.*", "hermes_cli", "hermes_cli.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "cron.*", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*", "social_video_factory", "social_video_factory.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

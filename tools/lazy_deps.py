@@ -174,6 +174,11 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
         "uvicorn[standard]==0.41.0",
         "starlette==1.0.1",  # CVE-2026-48710 (BadHost) — keep lazy-install in sync with pyproject [web]
     ),
+    # social_video_factory browser_flow mode — drives the user's OWN logged-in
+    # Chromium profile via Playwright (persistent, headed, NO stealth flags).
+    # pip installs the package but CANNOT fetch the browser binary; the feature
+    # code reminds the user to also run `python -m playwright install chromium`.
+    "social_video_factory.browser": ("playwright==1.60.0",),
     # Vision image-resize recovery (Pillow). Pillow is now a CORE dependency
     # (pyproject `dependencies`), so this entry is a belt-and-suspenders fallback
     # for stripped/source-build installs that somehow dropped it. The vision

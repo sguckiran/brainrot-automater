@@ -1,0 +1,179 @@
+# =============================================================================
+# social_video_factory — browser selector configuration (EXAMPLE / DEFAULTS)
+# =============================================================================
+#
+# THIS IS THE FILE YOU EDIT when the Gemini / Flow web UI changes and the
+# browser_flow mode can no longer find the prompt box, the submit button, the
+# download/export control, etc.
+#
+# How it is used
+# --------------
+# Point SOCIAL_FACTORY_SELECTORS_FILE at a copy of this file to override it;
+# if that env var is empty, this bundled example is used as-is.
+#
+# For each UI action the resolver tries, IN ORDER, until something matches:
+#   1. `css:`   — CSS / text selectors, tried one at a time, top to bottom.
+#   2. `role:`  — an accessible-role query (Playwright get_by_role).
+#   3. `label:` — an accessible-label query (Playwright get_by_label).
+#   4. `text:`  — visible text (Playwright get_by_text / a button of that name).
+#   5. MANUAL PAUSE — if nothing matched, the tool saves a screenshot, prints
+#      what you need to do, and waits for you to press Enter. Nothing is
+#      bypassed; a human simply finishes the step in the open browser window.
+#
+# Because of this layering, an EMPTY or WRONG selector is not fatal — it just
+# falls through to the next layer. So it is safe to leave a `css:` list partly
+# wrong while you iterate.
+#
+# IMPORTANT: the selectors below are PLAUSIBLE PLACEHOLDERS only. They WILL need
+# updating against the live UI — treat them as a starting template, not as
+# values known to work today.
+#
+# Schema per target (`flow`, `gemini`):
+#   prompt_box           — the text area you type the generation prompt into
+#   submit               — the button that starts generation
+#   generating_indicator — an element visible WHILE the video is generating
+#   download             — the control that downloads the finished clip
+#   export_mp4           — an MP4-format choice shown after pressing download
+#   result_video         — the finished <video> element / result tile
+# =============================================================================
+
+# --- Google Flow (labs.google / Flow web UI) --------------------------------
+flow:
+  prompt_box:
+    css:
+      - "textarea[aria-label='Prompt']"        # PLACEHOLDER — verify against live UI
+      - "div[contenteditable='true']"
+    label: "Prompt"
+    role:
+      role: "textbox"
+      name: "Prompt"
+
+  submit:
+    css:
+      - "button[aria-label='Generate']"        # PLACEHOLDER — verify against live UI
+      - "button[type='submit']"
+    role:
+      role: "button"
+      name: "Generate"
+    text: "Generate"
+
+  generating_indicator:
+    css:
+      - "[role='progressbar']"                 # PLACEHOLDER — verify against live UI
+      - ".generating"
+    text: "Generating"
+
+  download:
+    css:
+      - "button[aria-label='Download']"        # PLACEHOLDER — verify against live UI
+    role:
+      role: "button"
+      name: "Download"
+    text: "Download"
+
+  export_mp4:
+    css:
+      - "[data-format='mp4']"                  # PLACEHOLDER — verify against live UI
+    text: "MP4"
+
+  result_video:
+    css:
+      - "video"                                # PLACEHOLDER — verify against live UI
+      - "[data-testid='result-video']"
+
+# --- Gemini (Omni) web UI ---------------------------------------------------
+gemini:
+  prompt_box:
+    css:
+      - "div[contenteditable='true']"          # PLACEHOLDER — verify against live UI
+      - "textarea"
+    label: "Enter a prompt here"
+    role:
+      role: "textbox"
+
+  submit:
+    css:
+      - "button[aria-label='Send']"            # PLACEHOLDER — verify against live UI
+      - "button[aria-label='Submit']"
+    role:
+      role: "button"
+      name: "Send"
+    text: "Send"
+
+  generating_indicator:
+    css:
+      - "[role='progressbar']"                 # PLACEHOLDER — verify against live UI
+    text: "Generating"
+
+  download:
+    css:
+      - "button[aria-label='Download']"        # PLACEHOLDER — verify against live UI
+    role:
+      role: "button"
+      name: "Download"
+    text: "Download"
+
+  export_mp4:
+    css:
+      - "[data-format='mp4']"                  # PLACEHOLDER — verify against live UI
+    text: "MP4"
+
+  result_video:
+    css:
+      - "video"                                # PLACEHOLDER — verify against live UI
+
+# =============================================================================
+# hard_stops — RESERVED FOR PHASE 3 (not consumed by Phase 2 code).
+#
+# These are TEXT PATTERNS the future worker will scan the page for. On a match
+# the worker stops cleanly and asks a human to take over — it NEVER tries to
+# solve, bypass, or work around any of these. Edit the phrases to match what
+# the UI actually shows in your language / account.
+# =============================================================================
+hard_stops:
+  login:
+    - "Sign in"
+    - "Log in"
+    - "Sign in to continue"
+  captcha:
+    - "I'm not a robot"
+    - "verify you are human"
+    - "reCAPTCHA"
+  suspicious_activity:
+    - "unusual activity"
+    - "suspicious activity"
+    - "We've detected unusual traffic"
+  rate_limit:
+    - "rate limit"
+    - "usage limit"
+    - "Too many requests"
+    - "try again later"
+  subscription_upgrade:
+    - "Upgrade"
+    - "Upgrade your plan"
+    - "subscribe to continue"
+  payment:
+    - "payment"
+    - "billing"
+    - "add a payment method"
+  safety_refusal:
+    - "I can't help with that"
+    - "cannot generate"
+    - "violates our policies"
+  content_policy:
+    - "content policy"
+    - "policy violation"
+    - "prohibited content"
+  age_identity_verification:
+    - "verify your age"
+    - "verify your identity"
+    - "age verification"
+  account_recovery:
+    - "recover your account"
+    - "account recovery"
+    - "secure your account"
+  consent_policy_modal:
+    - "Accept all"
+    - "I agree"
+    - "Before you continue"
+    - "cookies"
