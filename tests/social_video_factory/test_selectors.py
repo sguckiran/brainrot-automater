@@ -113,9 +113,12 @@ def test_user_override_file_wins(monkeypatch, tmp_path):
 
 
 def test_configured_css_hit_wins_first():
-    # flow.submit's first css is "button[aria-label='Generate']".
-    page = FakePage(css_hits={"button[aria-label='Generate']": "CSS_NODE"})
-    resolver = SelectorResolver(page, load_selector_config(), "flow", FakeController())
+    # Use whatever the bundled config's FIRST flow.submit css selector is, so
+    # this test isn't coupled to a specific (tunable) selector string.
+    cfg = load_selector_config()
+    first_css = cfg["flow"]["submit"]["css"][0]
+    page = FakePage(css_hits={first_css: "CSS_NODE"})
+    resolver = SelectorResolver(page, cfg, "flow", FakeController())
     assert resolver.locate("submit") == "CSS_NODE"
     # It stopped at the first css and never reached role/label/text.
     assert all(c[0] == "query_selector" for c in page.calls)

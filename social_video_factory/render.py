@@ -29,6 +29,14 @@ TARGET_HEIGHT = 1920
 # is available — Phase 1 mock clips have no reliable duration.
 DEFAULT_TOTAL_SECONDS = 12.0
 
+_FONT_CANDIDATES = (
+    Path("C:/Windows/Fonts/arial.ttf"),
+    Path("C:/Windows/Fonts/segoeui.ttf"),
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+    Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+)
+
 
 def _format_srt_timestamp(seconds: float) -> str:
     """Format ``seconds`` as an SRT timestamp ``HH:MM:SS,mmm``."""
@@ -74,13 +82,18 @@ def _escape_drawtext(text: str) -> str:
     )
 
 
-def _escape_subtitles_path(path: str) -> str:
-    """Escape a path for ffmpeg's subtitles filter.
+def _escape_filter_path(path: str) -> str:
+    """Escape a path used as an ffmpeg filter option.
 
-    The subtitles filter parses its argument, so Windows backslashes and the
-    drive-letter colon must be escaped.
+    Filter arguments parse Windows backslashes and the drive-letter colon, so
+    paths must use forward slashes and escape the colon.
     """
     return path.replace("\\", "/").replace(":", "\\:")
+
+
+def _find_font_file() -> Path | None:
+    """Return a stable system font for drawtext, if one is installed."""
+    return next((path for path in _FONT_CANDIDATES if path.is_file()), None)
 
 
 def build_ffmpeg_command(
@@ -89,6 +102,7 @@ def build_ffmpeg_command(
     output_path: str | Path,
     hook_text: str,
     watermark_text: str,
+    font_path: str | Path | None = None,
 ) -> list[str]:
     """Build the ffmpeg argv that renders a 1080x1920 MP4.
 
@@ -98,9 +112,12 @@ def build_ffmpeg_command(
     """
     input_path = str(input_path)
     output_path = str(output_path)
-    srt_for_filter = _escape_subtitles_path(str(srt_path))
+    srt_for_filter = _escape_filter_path(str(srt_path))
     hook = _escape_drawtext(hook_text)
     watermark = _escape_drawtext(watermark_text)
+    font_option = ""
+    if font_path is not None:
+        font_option = f"fontfile='{_escape_filter_path(str(font_path))}':"
 
     scale_pad = (
         f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease,"
@@ -109,11 +126,11 @@ def build_ffmpeg_command(
     )
     subtitles = f"subtitles='{srt_for_filter}'"
     hook_overlay = (
-        f"drawtext=text='{hook}':fontcolor=white:fontsize=64:borderw=4:"
+        f"drawtext={font_option}text='{hook}':fontcolor=white:fontsize=64:borderw=4:"
         f"bordercolor=black:x=(w-text_w)/2:y=h*0.08"
     )
     watermark_overlay = (
-        f"drawtext=text='{watermark}':fontcolor=white@0.85:fontsize=36:"
+        f"drawtext={font_option}text='{watermark}':fontcolor=white@0.85:fontsize=36:"
         f"borderw=2:bordercolor=black:x=(w-text_w)/2:y=h*0.90"
     )
     vf = ",".join([scale_pad, subtitles, hook_overlay, watermark_overlay])
@@ -169,6 +186,7 @@ def render_9x16(job: Job) -> Path | None:
         output_path=output_path,
         hook_text=hook_text,
         watermark_text=config.WATERMARK_TEXT,
+        font_path=_find_font_file(),
     )
     try:
         subprocess.run(command, capture_output=True, check=True)

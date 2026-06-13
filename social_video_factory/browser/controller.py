@@ -88,7 +88,18 @@ class BrowserController:
         raise NotImplementedError
 
     def html(self) -> str:
-        """Return the full page HTML (for snapshots / hard-stop scans)."""
+        """Return the full page HTML (for redacted snapshots)."""
+        raise NotImplementedError
+
+    def visible_text(self) -> str:
+        """Return the page's VISIBLE text (preferred for hard-stop scans).
+
+        Full HTML contains hidden menus, aria labels, footers and inlined
+        scripts whose incidental text ("Sign in to another account", "Billing",
+        cookie notices) would false-trip the conservative hard-stop detector.
+        Scanning only the rendered/visible text keeps detection focused on what
+        the user actually sees on screen.
+        """
         raise NotImplementedError
 
     def expect_download(
@@ -208,6 +219,15 @@ class PlaywrightController(BrowserController):
     def html(self) -> str:
         return self.page.content()
 
+    def visible_text(self) -> str:
+        """Rendered text of the page body (falls back to full content)."""
+        try:
+            return self.page.inner_text("body")
+        except Exception:
+            # body not ready / detached — fall back to full HTML so a scan
+            # still has something to look at.
+            return self.page.content()
+
     def expect_download(
         self, trigger: Callable[[], None], timeout_ms: int = 120000
     ) -> Path:
@@ -269,6 +289,9 @@ class NullController(BrowserController):
         raise BrowserUnavailable()
 
     def html(self) -> str:
+        raise BrowserUnavailable()
+
+    def visible_text(self) -> str:
         raise BrowserUnavailable()
 
     def expect_download(

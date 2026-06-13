@@ -24,9 +24,12 @@
 # falls through to the next layer. So it is safe to leave a `css:` list partly
 # wrong while you iterate.
 #
-# IMPORTANT: the selectors below are PLAUSIBLE PLACEHOLDERS only. They WILL need
-# updating against the live UI — treat them as a starting template, not as
-# values known to work today.
+# TUNING TIP: prefer the ACCESSIBLE hints (`role:` / `label:` / `text:`) over
+# brittle `css:` class names. Google's apps rebuild their CSS class hashes
+# constantly, but the accessible role + visible label of the prompt box and the
+# "Generate"/"Send"/"Download" buttons are far more stable. The `css:` entries
+# below are PLACEHOLDERS — verify them against your live UI (open DevTools,
+# inspect the element) and replace as needed.
 #
 # Schema per target (`flow`, `gemini`):
 #   prompt_box           — the text area you type the generation prompt into
@@ -37,64 +40,81 @@
 #   result_video         — the finished <video> element / result tile
 # =============================================================================
 
-# --- Google Flow (labs.google / Flow web UI) --------------------------------
+# --- Google Flow (labs.google/fx/tools/flow) --------------------------------
 flow:
   prompt_box:
+    # Flow's prompt field is a free-text box. Accessible hints first.
     css:
-      - "textarea[aria-label='Prompt']"        # PLACEHOLDER — verify against live UI
+      - "textarea"                               # PLACEHOLDER — verify against live UI
       - "div[contenteditable='true']"
-    label: "Prompt"
+      - "textarea[placeholder*='Generate' i]"
+      - "textarea[aria-label*='prompt' i]"
     role:
       role: "textbox"
-      name: "Prompt"
+    label: "Prompt"
+    text: ""
 
   submit:
+    # The control that kicks off generation (often an arrow / "Create" button).
     css:
-      - "button[aria-label='Generate']"        # PLACEHOLDER — verify against live UI
+      - "button[aria-label*='Generate' i]"       # PLACEHOLDER — verify against live UI
+      - "button[aria-label*='Create' i]"
       - "button[type='submit']"
     role:
       role: "button"
-      name: "Generate"
+      name: "Create"
     text: "Generate"
 
   generating_indicator:
+    # Visible WHILE generation runs; its DISAPPEARANCE signals completion.
     css:
-      - "[role='progressbar']"                 # PLACEHOLDER — verify against live UI
-      - ".generating"
+      - "[role='progressbar']"                   # PLACEHOLDER — verify against live UI
+      - "[aria-busy='true']"
     text: "Generating"
 
   download:
+    # Usually behind a "More options" / overflow (⋮) menu on the result tile.
     css:
-      - "button[aria-label='Download']"        # PLACEHOLDER — verify against live UI
+      - "button[aria-label*='Download' i]"       # PLACEHOLDER — verify against live UI
+      - "a[download]"
+      - "[aria-label*='More' i] >> nth=0"
     role:
       role: "button"
       name: "Download"
     text: "Download"
 
   export_mp4:
+    # Shown only if a format menu appears after pressing Download.
     css:
-      - "[data-format='mp4']"                  # PLACEHOLDER — verify against live UI
+      - "[data-format='mp4']"                    # PLACEHOLDER — verify against live UI
+      - "[role='menuitem']:has-text('MP4')"
+    role:
+      role: "menuitem"
+      name: "MP4"
     text: "MP4"
 
   result_video:
+    # The finished clip; its APPEARANCE also signals completion.
     css:
-      - "video"                                # PLACEHOLDER — verify against live UI
+      - "video"                                  # PLACEHOLDER — verify against live UI
       - "[data-testid='result-video']"
 
-# --- Gemini (Omni) web UI ---------------------------------------------------
+# --- Gemini (Omni) web UI (gemini.google.com) -------------------------------
 gemini:
   prompt_box:
     css:
-      - "div[contenteditable='true']"          # PLACEHOLDER — verify against live UI
+      - "div[contenteditable='true']"            # PLACEHOLDER — verify against live UI
       - "textarea"
-    label: "Enter a prompt here"
+      - "rich-textarea div[contenteditable='true']"
     role:
       role: "textbox"
+    label: "Enter a prompt here"
+    text: ""
 
   submit:
     css:
-      - "button[aria-label='Send']"            # PLACEHOLDER — verify against live UI
-      - "button[aria-label='Submit']"
+      - "button[aria-label*='Send' i]"           # PLACEHOLDER — verify against live UI
+      - "button[aria-label*='Submit' i]"
     role:
       role: "button"
       name: "Send"
@@ -102,12 +122,14 @@ gemini:
 
   generating_indicator:
     css:
-      - "[role='progressbar']"                 # PLACEHOLDER — verify against live UI
+      - "[role='progressbar']"                   # PLACEHOLDER — verify against live UI
+      - "[aria-busy='true']"
     text: "Generating"
 
   download:
     css:
-      - "button[aria-label='Download']"        # PLACEHOLDER — verify against live UI
+      - "button[aria-label*='Download' i]"       # PLACEHOLDER — verify against live UI
+      - "a[download]"
     role:
       role: "button"
       name: "Download"
@@ -115,26 +137,38 @@ gemini:
 
   export_mp4:
     css:
-      - "[data-format='mp4']"                  # PLACEHOLDER — verify against live UI
+      - "[data-format='mp4']"                    # PLACEHOLDER — verify against live UI
+      - "[role='menuitem']:has-text('MP4')"
+    role:
+      role: "menuitem"
+      name: "MP4"
     text: "MP4"
 
   result_video:
     css:
-      - "video"                                # PLACEHOLDER — verify against live UI
+      - "video"                                  # PLACEHOLDER — verify against live UI
 
 # =============================================================================
-# hard_stops — RESERVED FOR PHASE 3 (not consumed by Phase 2 code).
+# hard_stops — blocking-screen TEXT PATTERNS the worker scans for.
 #
-# These are TEXT PATTERNS the future worker will scan the page for. On a match
-# the worker stops cleanly and asks a human to take over — it NEVER tries to
-# solve, bypass, or work around any of these. Edit the phrases to match what
-# the UI actually shows in your language / account.
+# On a match the worker stops cleanly, screenshots, marks the job needs_human,
+# and exits — it NEVER tries to solve, bypass, or work around any of these.
+#
+# These phrases are MERGED ON TOP OF a built-in default set (see
+# browser/hard_stops.py), so you can only ADD phrases here — you can't disable a
+# whole category. Matching is case-insensitive substring, against the page's
+# VISIBLE text.
+#
+# IMPORTANT — keep these SPECIFIC. Broad words like "Sign in", "Upgrade",
+# "billing", "cookies", "Accept all", or "Before you continue" appear on almost
+# every logged-in Google page (account menus, settings links, cookie banners)
+# and would halt EVERY run. Match the actual blocking WALL, not incidental UI
+# chrome. Edit to match what your account/language actually shows.
 # =============================================================================
 hard_stops:
   login:
-    - "Sign in"
-    - "Log in"
     - "Sign in to continue"
+    - "You need to sign in"
   captcha:
     - "I'm not a robot"
     - "verify you are human"
@@ -144,21 +178,19 @@ hard_stops:
     - "suspicious activity"
     - "We've detected unusual traffic"
   rate_limit:
-    - "rate limit"
     - "usage limit"
     - "Too many requests"
-    - "try again later"
+    - "You've reached your limit"
+    - "quota exceeded"
   subscription_upgrade:
-    - "Upgrade"
-    - "Upgrade your plan"
+    - "Upgrade your plan to continue"
     - "subscribe to continue"
   payment:
-    - "payment"
-    - "billing"
     - "add a payment method"
+    - "update your payment"
   safety_refusal:
     - "I can't help with that"
-    - "cannot generate"
+    - "can't generate that"
     - "violates our policies"
   content_policy:
     - "content policy"
@@ -170,10 +202,7 @@ hard_stops:
     - "age verification"
   account_recovery:
     - "recover your account"
-    - "account recovery"
-    - "secure your account"
+    - "Verify it's you"
   consent_policy_modal:
-    - "Accept all"
-    - "I agree"
-    - "Before you continue"
-    - "cookies"
+    - "Before you continue to"
+    - "accept the terms to continue"

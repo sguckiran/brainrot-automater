@@ -55,11 +55,24 @@ class GenerationOutcome:
 
 
 def _page_text(controller: Any) -> str:
-    """Best-effort page text/HTML for the hard-stop scan; '' on failure."""
-    try:
-        return controller.html() or ""
-    except Exception:
-        return ""
+    """Best-effort VISIBLE page text for the hard-stop scan; '' on failure.
+
+    Prefers ``visible_text()`` (what the user actually sees) so hidden menu
+    items, aria labels, footers and inlined scripts don't false-trip the
+    conservative hard-stop detector. Falls back to full ``html()`` for
+    controllers that don't implement ``visible_text`` (e.g. older fakes).
+    """
+    for getter in ("visible_text", "html"):
+        fn = getattr(controller, getter, None)
+        if fn is None:
+            continue
+        try:
+            text = fn()
+        except Exception:
+            continue
+        if text:
+            return text
+    return ""
 
 
 def _needs_human(

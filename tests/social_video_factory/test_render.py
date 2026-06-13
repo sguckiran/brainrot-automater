@@ -56,3 +56,16 @@ def test_build_ffmpeg_command_scales_to_portrait():
     argv = build_ffmpeg_command("i.mp4", "s.srt", "o.mp4", "h", "w")
     vf = argv[argv.index("-vf") + 1]
     assert "1080:1920" in vf
+
+
+def test_build_ffmpeg_command_uses_explicit_windows_font():
+    argv = build_ffmpeg_command(
+        "i.mp4",
+        "s.srt",
+        "o.mp4",
+        "h",
+        "w",
+        font_path=r"C:\Windows\Fonts\arial.ttf",
+    )
+    vf = argv[argv.index("-vf") + 1]
+    assert vf.count("fontfile='C\\:/Windows/Fonts/arial.ttf'") == 2

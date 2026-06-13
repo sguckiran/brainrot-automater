@@ -46,12 +46,17 @@ HARD_STOP_KEYS: tuple[str, ...] = (
 # whole category of hard stop.  Kept lower-case because matching is done against
 # lower-cased page text.
 _DEFAULT_PATTERNS: dict[str, tuple[str, ...]] = {
+    # NOTE: bare "sign in" / "log in" are intentionally NOT here — they appear
+    # incidentally on logged-in pages (account menus, "sign in to another
+    # account", footers) and would false-trip. We match phrases that signal an
+    # actual login WALL instead.
     "login": (
-        "sign in",
-        "log in",
         "sign in to continue",
         "please sign in",
         "you need to sign in",
+        "sign in - google",
+        "to continue, sign in",
+        "sign in to your account to continue",
     ),
     "captcha": (
         "i'm not a robot",
@@ -116,11 +121,16 @@ _DEFAULT_PATTERNS: dict[str, tuple[str, ...]] = {
         "secure your account",
         "verify it's you",
     ),
+    # NOTE: a routine cookie banner ("we use cookies", "accept all", "i agree")
+    # is NOT a hard stop — those appear on virtually every Google page and would
+    # halt every run. We match Google's full-page consent INTERSTITIAL / a
+    # genuine policy-review wall instead, which is what actually blocks the flow.
     "consent_policy_modal": (
-        "before you continue",
-        "accept all",
-        "i agree",
-        "we use cookies",
+        "before you continue to",
+        "review our policies to continue",
+        "accept the terms to continue",
+        "you must accept the terms",
+        "consent required to continue",
     ),
 }
 
