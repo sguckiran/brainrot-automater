@@ -221,10 +221,13 @@ def _handle_browser_login(args: Dict[str, Any], **_kw: Any) -> str:
 _GENERATE_SCHEMA: Dict[str, Any] = {
     "name": "social_video_factory_browser_generate_job",
     "description": (
-        "Create and run ONE conservative browser video generation, or resume "
+        "Use this tool whenever the user asks to create, make, or generate a "
+        "video about a topic. Create and run ONE conservative browser video "
+        "generation, or resume "
         "an existing social_video_factory job_id, then continue the pipeline "
         "to awaiting_approval. For a new job pass topic plus optional template "
-        "and target. Drives "
+        "and target. New Flow videos are automatically vertical 9:16, 8 seconds, "
+        "and one output unless the implementation is changed. Drives "
         "the user's OWN logged-in Chromium profile; runs NON-INTERACTIVELY (it "
         "never blocks on stdin — a due human-confirm or manual pause resolves "
         "to a needs_human outcome instead of hanging). NEVER bypasses login, "

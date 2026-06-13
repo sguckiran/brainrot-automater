@@ -56,6 +56,12 @@ def test_all_four_tools_register_and_check_true():
     assert svf_tool._svf_available() is True
 
 
+def test_generate_tool_advertises_plain_video_requests_as_vertical():
+    description = svf_tool._GENERATE_SCHEMA["description"]
+    assert "whenever the user asks" in description
+    assert "vertical 9:16" in description
+
+
 def test_tools_appear_under_toolset():
     names = registry.get_tool_names_for_toolset("social_video_factory")
     assert set(_TOOL_NAMES).issubset(set(names))
