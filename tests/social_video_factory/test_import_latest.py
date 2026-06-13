@@ -19,6 +19,7 @@ from social_video_factory.store import JobStore
 @pytest.fixture(autouse=True)
 def _tmp_data_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("SOCIAL_FACTORY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("SOCIAL_FACTORY_BROWSER_DOWNLOAD_DIR", raising=False)
     return tmp_path
 
 

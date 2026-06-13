@@ -36,6 +36,7 @@ _TOOL_NAMES = [
 @pytest.fixture(autouse=True)
 def _tmp_data_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("SOCIAL_FACTORY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("SOCIAL_FACTORY_BROWSER_DOWNLOAD_DIR", raising=False)
     # Ensure a clean, isolated profile dir under the tmp data root.
     monkeypatch.delenv("SOCIAL_FACTORY_BROWSER_PROFILE_DIR", raising=False)
     monkeypatch.delenv("SOCIAL_FACTORY_FLOW_URL", raising=False)
@@ -97,6 +98,12 @@ def test_generate_job_missing_id_returns_json_error():
     data = json.loads(out)
     assert "error" in data
     assert "not found" in data["error"]
+
+
+def test_generate_job_requires_id_or_topic():
+    out = svf_tool._handle_browser_generate_job({})
+    data = json.loads(out)
+    assert "provide job_id or topic" in data["error"]
 
 
 def test_import_latest_empty_downloads_returns_json_error():
@@ -214,3 +221,33 @@ def test_generate_job_happy_path_success(monkeypatch):
     assert captured["rate_limiter"].confirm("proceed?") is False
     assert isinstance(captured["controller"], svf_tool._NonBlockingController)
     assert captured["controller"].wait_for_enter("x") is None
+
+
+def test_generate_job_can_create_from_topic(monkeypatch):
+    captured = {}
+
+    from social_video_factory.browser.worker import GenerationOutcome
+
+    def _fake_generate(job, store, **_kwargs):
+        captured["job"] = job
+        job.advance(JobStatus.AWAITING_APPROVAL, note="fake success")
+        store.save(job)
+        return GenerationOutcome(status="success", job_id=job.id)
+
+    import social_video_factory.browser.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "generate_in_browser", _fake_generate)
+
+    out = svf_tool._handle_browser_generate_job(
+        {
+            "topic": "orange cat disco kitchen",
+            "template": "dancing_cat",
+            "target": "flow",
+        }
+    )
+    data = json.loads(out)
+
+    assert data["status"] == "success"
+    assert captured["job"].topic == "orange cat disco kitchen"
+    assert captured["job"].generation_mode == GenerationMode.BROWSER_FLOW.value
+    assert captured["job"].prompt

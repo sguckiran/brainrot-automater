@@ -145,7 +145,7 @@ Four tools are registered under the `social_video_factory` toolset:
 | Tool | What it does |
 |---|---|
 | `social_video_factory_browser_login` | Returns login **guidance** (the command + resolved URL); login itself is manual — it never opens a browser or bypasses login. |
-| `social_video_factory_browser_generate_job` | Runs the browser worker for one existing job, then continues the pipeline. |
+| `social_video_factory_browser_generate_job` | Creates and runs a video from `topic` (or resumes `job_id`), then continues through download, render, captions, and approval. |
 | `social_video_factory_browser_run_queue` | Processes pending `browser_flow` jobs one at a time, stopping on any hard stop. |
 | `social_video_factory_import_latest_browser_download` | Imports the newest downloaded clip for a job (manual-recovery path). |
 

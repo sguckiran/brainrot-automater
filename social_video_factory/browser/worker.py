@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from social_video_factory import config, media, pipeline
+from social_video_factory.browser import flow_ui
 from social_video_factory.browser.hard_stops import detect_hard_stop
 from social_video_factory.browser.selectors import SelectorResolver, load_selector_config
 from social_video_factory.models import Job, JobStatus
@@ -240,13 +241,33 @@ def generate_in_browser(
             controller.page, selectors_config, job.target, controller
         )
 
-        # 5. Locate + fill the prompt box (manual pause on miss).
-        prompt_box = resolver.locate("prompt_box")
-        if prompt_box is None or not _fill_prompt(prompt_box, job.prompt or ""):
-            resolver.manual_pause(
-                "could not paste the prompt automatically; paste this prompt "
-                f"into the box and start generation:\n{job.prompt}"
-            )
+        flow_prepared = None
+        if (job.target or "").strip().lower() == "flow":
+            try:
+                flow_prepared = flow_ui.prepare_generation(
+                    controller.page,
+                    url,
+                    job.prompt or "",
+                )
+                prompt_box = flow_prepared.prompt_box
+            except flow_ui.FlowUIError as exc:
+                resolver.manual_pause(str(exc))
+                return _needs_human(
+                    job,
+                    store,
+                    controller,
+                    artifacts,
+                    f"Flow UI needs manual action: {exc}",
+                    stage="flow_ui",
+                )
+        else:
+            # Gemini and user overrides retain the generic layered resolver.
+            prompt_box = resolver.locate("prompt_box")
+            if prompt_box is None or not _fill_prompt(prompt_box, job.prompt or ""):
+                resolver.manual_pause(
+                    "could not paste the prompt automatically; paste this prompt "
+                    f"into the box and start generation:\n{job.prompt}"
+                )
         artifacts.stage(
             "prompt_pasted",
             selector_used="prompt_box" if prompt_box is not None else "manual",
@@ -255,7 +276,11 @@ def generate_in_browser(
         # 6. Submit only if the UI looks ready: the submit control must exist
         #    and (when we filled it) the prompt box should now hold content.
         #    A missing prompt box just means we paused for a human above.
-        submit = resolver.locate("submit")
+        submit = (
+            flow_prepared.submit
+            if flow_prepared is not None
+            else resolver.locate("submit")
+        )
         prompt_present = prompt_box is None or _locator_has_value(prompt_box)
         if submit is None or not prompt_present or not _click(submit):
             resolver.manual_pause(
@@ -277,6 +302,7 @@ def generate_in_browser(
         # 7. Wait for generation — re-check hard stops every iteration.
         deadline = time.monotonic() + poll_timeout_s
         completed = False
+        flow_edit_url: str | None = None
         while time.monotonic() < deadline:
             hit = detect_hard_stop(_page_text(controller), selectors_config)
             if hit:
@@ -287,12 +313,21 @@ def generate_in_browser(
                     artifacts,
                     f"hard stop appeared during generation: {hit}",
                 )
-            # Done when the generating indicator is gone OR a result appears.
-            indicator = resolver.locate("generating_indicator")
-            result = resolver.locate("result_video")
-            if result is not None or indicator is None:
-                completed = True
-                break
+            if flow_prepared is not None:
+                flow_edit_url = flow_ui.new_result_edit_url(
+                    controller.page,
+                    flow_prepared.baseline_video_count,
+                )
+                if flow_edit_url is not None:
+                    completed = True
+                    break
+            else:
+                # Indicator absence is not completion: some UIs expose no
+                # progress element. Require an actual result.
+                result = resolver.locate("result_video")
+                if result is not None:
+                    completed = True
+                    break
             time.sleep(poll_interval_s)
 
         if not completed:
@@ -304,8 +339,21 @@ def generate_in_browser(
 
         # 8. Download / export — prefer MP4 if a format choice appears.
         downloaded: Path | None = None
-        download_ctl = resolver.locate("download")
-        if download_ctl is not None:
+        download_ctl: Any | None = None
+        if flow_prepared is not None:
+            if flow_edit_url is not None:
+                try:
+                    downloaded = flow_ui.download_from_detail(
+                        controller,
+                        flow_edit_url,
+                    )
+                    download_ctl = "flow_detail"
+                except flow_ui.FlowUIError:
+                    downloaded = None
+        else:
+            download_ctl = resolver.locate("download")
+
+        if downloaded is None and download_ctl is not None and download_ctl != "flow_detail":
             def _trigger() -> None:
                 _click(download_ctl)
                 export = resolver.locate("export_mp4")

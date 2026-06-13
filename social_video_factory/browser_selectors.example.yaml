@@ -43,10 +43,10 @@
 # --- Google Flow (labs.google/fx/tools/flow) --------------------------------
 flow:
   prompt_box:
-    # Flow's prompt field is a free-text box. Accessible hints first.
+    # Flow uses a Slate contenteditable. Do not use bare "textarea": the page
+    # contains a hidden reCAPTCHA textarea which would receive the prompt.
     css:
-      - "textarea"                               # PLACEHOLDER — verify against live UI
-      - "div[contenteditable='true']"
+      - "div[contenteditable='true'][role='textbox']"
       - "textarea[placeholder*='Generate' i]"
       - "textarea[aria-label*='prompt' i]"
     role:

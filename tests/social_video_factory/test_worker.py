@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from social_video_factory import config
+from social_video_factory.browser import flow_ui
 from social_video_factory.browser import worker as worker_mod
 from social_video_factory.browser.worker import generate_in_browser
 from social_video_factory.models import GenerationMode, Job, JobStatus
@@ -24,6 +25,7 @@ from social_video_factory.store import JobStore
 def _tmp_data_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("SOCIAL_FACTORY_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SOCIAL_FACTORY_FLOW_URL", "https://example.test/flow")
+    monkeypatch.setenv("SOCIAL_FACTORY_GEMINI_URL", "https://example.test/gemini")
     # Make the worker poll fast and not sleep.
     monkeypatch.setattr(worker_mod.time, "sleep", lambda _s: None)
     return tmp_path
@@ -149,6 +151,32 @@ def _full_locators():
     }
 
 
+def _mock_flow_ui(monkeypatch, locators):
+    def _prepare(*_args, **kwargs):
+        locators["prompt_box"].fill(kwargs.get("prompt", "") or _args[2])
+        return flow_ui.PreparedFlowGeneration(
+            prompt_box=locators["prompt_box"],
+            submit=locators["submit"],
+            baseline_video_count=0,
+        )
+
+    monkeypatch.setattr(
+        flow_ui,
+        "prepare_generation",
+        _prepare,
+    )
+    monkeypatch.setattr(
+        flow_ui,
+        "new_result_edit_url",
+        lambda *_a, **_k: "https://example.test/flow/project/1/edit/2",
+    )
+    monkeypatch.setattr(
+        flow_ui,
+        "download_from_detail",
+        lambda controller, _url: controller.expect_download(lambda: None),
+    )
+
+
 # --- tests ----------------------------------------------------------------
 
 
@@ -159,7 +187,9 @@ def test_happy_path_reaches_awaiting_approval(monkeypatch):
 
     controller = FakeController()
     rl = FakeRateLimiter()
-    resolver = FakeResolver(locators=_full_locators())
+    locators = _full_locators()
+    resolver = FakeResolver(locators=locators)
+    _mock_flow_ui(monkeypatch, locators)
     monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
 
     outcome = generate_in_browser(
@@ -242,6 +272,7 @@ def test_human_confirm_declined_returns_needs_human(monkeypatch):
 def test_prompt_box_miss_falls_back_to_manual_pause(monkeypatch):
     store = JobStore()
     job = _make_job()
+    job.target = "gemini"
     store.save(job)
 
     controller = FakeController()
@@ -286,7 +317,9 @@ def test_no_video_download_marks_needs_human(monkeypatch):
     # Controller returns a non-video file name and we ensure downloads dir empty.
     controller = FakeController(download_name="result.txt")
     rl = FakeRateLimiter()
-    resolver = FakeResolver(locators=_full_locators())
+    locators = _full_locators()
+    resolver = FakeResolver(locators=locators)
+    _mock_flow_ui(monkeypatch, locators)
     monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
 
     outcome = generate_in_browser(

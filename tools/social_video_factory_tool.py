@@ -221,8 +221,10 @@ def _handle_browser_login(args: Dict[str, Any], **_kw: Any) -> str:
 _GENERATE_SCHEMA: Dict[str, Any] = {
     "name": "social_video_factory_browser_generate_job",
     "description": (
-        "Run ONE conservative browser generation for an existing social_video_"
-        "factory job, then continue the pipeline to awaiting_approval. Drives "
+        "Create and run ONE conservative browser video generation, or resume "
+        "an existing social_video_factory job_id, then continue the pipeline "
+        "to awaiting_approval. For a new job pass topic plus optional template "
+        "and target. Drives "
         "the user's OWN logged-in Chromium profile; runs NON-INTERACTIVELY (it "
         "never blocks on stdin — a due human-confirm or manual pause resolves "
         "to a needs_human outcome instead of hanging). NEVER bypasses login, "
@@ -235,10 +237,28 @@ _GENERATE_SCHEMA: Dict[str, Any] = {
         "properties": {
             "job_id": {
                 "type": "string",
-                "description": "Id of the prepared job to generate.",
+                "description": (
+                    "Optional id of an existing prepared job. Omit it to create "
+                    "a new job from topic."
+                ),
+            },
+            "topic": {
+                "type": "string",
+                "description": "Topic for a new video job when job_id is omitted.",
+            },
+            "template": {
+                "type": "string",
+                "description": "Creative template for a new job.",
+                "default": "dancing_cat",
+            },
+            "target": {
+                "type": "string",
+                "enum": ["flow", "gemini"],
+                "description": "Browser generation target for a new job.",
+                "default": "flow",
             },
         },
-        "required": ["job_id"],
+        "required": [],
     },
 }
 
@@ -257,18 +277,37 @@ def _ensure_prompt(job: Any, store: Any) -> None:
 
 def _handle_browser_generate_job(args: Dict[str, Any], **_kw: Any) -> str:
     job_id = (args.get("job_id") or "").strip()
-    if not job_id:
-        return tool_error("job_id is required")
 
+    from social_video_factory import pipeline
     from social_video_factory.browser.controller import BrowserUnavailable
     from social_video_factory.browser.worker import generate_in_browser
+    from social_video_factory.models import GenerationMode
     from social_video_factory.store import JobStore
 
     store = JobStore()
-    try:
-        job = store.load(job_id)
-    except FileNotFoundError:
-        return tool_error(f"job not found: {job_id}", job_id=job_id)
+    if job_id:
+        try:
+            job = store.load(job_id)
+        except FileNotFoundError:
+            return tool_error(f"job not found: {job_id}", job_id=job_id)
+    else:
+        topic = (args.get("topic") or "").strip()
+        if not topic:
+            return tool_error("provide job_id or topic")
+        target = (args.get("target") or "flow").strip().lower()
+        if target not in {"flow", "gemini"}:
+            return tool_error(
+                f"invalid target {target!r}; expected 'flow' or 'gemini'"
+            )
+        template = (args.get("template") or "dancing_cat").strip()
+        job = pipeline.create_job(
+            template=template,
+            topic=topic,
+            generation_mode=GenerationMode.BROWSER_FLOW.value,
+            target=target,
+            store=store,
+        )
+        job_id = job.id
 
     _ensure_prompt(job, store)
 
