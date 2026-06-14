@@ -1,7 +1,7 @@
 """Phase 5 — Hermes tool surface for social_video_factory.
 
 No real browser / Playwright / network.  Covers:
-  * all four tools register + check_fn True;
+  * all social video tools register + check_fn True;
   * browser_login returns JSON guidance (CLI command + profile_exists) and
     NEVER opens a browser, even with no URL configured;
   * browser_generate_job with a missing job_id -> JSON error (no exception);
@@ -30,6 +30,7 @@ _TOOL_NAMES = [
     "social_video_factory_browser_generate_job",
     "social_video_factory_browser_run_queue",
     "social_video_factory_import_latest_browser_download",
+    "social_video_factory_publish_job",
 ]
 
 
@@ -47,7 +48,7 @@ def _tmp_data_dir(monkeypatch, tmp_path):
 # --- registration ----------------------------------------------------------
 
 
-def test_all_four_tools_register_and_check_true():
+def test_all_tools_register_and_check_true():
     for name in _TOOL_NAMES:
         entry = registry.get_entry(name)
         assert entry is not None, f"{name} not registered"

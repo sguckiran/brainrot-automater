@@ -44,6 +44,9 @@ class JobStatus(str, Enum):
     CAPTIONED = "captioned"
     AWAITING_APPROVAL = "awaiting_approval"
     APPROVED = "approved"
+    PUBLISHING = "publishing"
+    PUBLISHED = "published"
+    PUBLISH_PARTIAL = "publish_partial"
     NEEDS_HUMAN = "needs_human"
     FAILED = "failed"
 
@@ -92,6 +95,7 @@ class Job:
     # downstream artifacts
     captions: dict[str, Any] = field(default_factory=dict)
     review: dict[str, Any] = field(default_factory=dict)
+    publish_results: dict[str, Any] = field(default_factory=dict)
 
     # human-in-the-loop / errors
     needs_human_reason: str | None = None
@@ -136,6 +140,7 @@ class Job:
             "rendered_path": self.rendered_path,
             "captions": self.captions,
             "review": self.review,
+            "publish_results": self.publish_results,
             "needs_human_reason": self.needs_human_reason,
             "error": self.error,
             "history": self.history,

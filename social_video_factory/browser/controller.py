@@ -140,12 +140,19 @@ class PlaywrightController(BrowserController):
         flags.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        profile_path: str | Path | None = None,
+        download_path: str | Path | None = None,
+    ) -> None:
         # All Playwright handles are created lazily in start(); construction is
         # side-effect-free and import-free so get_controller()/tests are cheap.
         self._pw: Any = None
         self._context: Any = None
         self._page: Any = None
+        self._profile_path = Path(profile_path) if profile_path else None
+        self._download_path = Path(download_path) if download_path else None
 
     def _ensure_playwright(self) -> Any:
         """Lazy-install + import Playwright, mapping all failures to BrowserUnavailable."""
@@ -177,10 +184,10 @@ class PlaywrightController(BrowserController):
             # an intentional divergence from meet_bot.py:514 and is asserted by
             # tests/social_video_factory/test_browser_controller.py.
             self._context = self._pw.chromium.launch_persistent_context(
-                user_data_dir=str(config.profile_dir()),
+                user_data_dir=str(self._profile_path or config.profile_dir()),
                 headless=config.browser_headless(),
                 accept_downloads=True,
-                downloads_path=str(config.downloads_dir()),
+                downloads_path=str(self._download_path or config.downloads_dir()),
                 executable_path=config.browser_executable_path() or None,
             )
             pages = self._context.pages

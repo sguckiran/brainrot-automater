@@ -12,7 +12,7 @@ Modes (see the master plan):
   tiny placeholder ``.mp4``), then run import -> review -> render -> captions ->
   ``awaiting_approval``. When ffmpeg is absent the render encode is SKIPPED
   (``rendered_path=None`` + a history note) so the E2E still completes. NEVER
-  auto-publishes.
+  publishes only when explicitly enabled in Hermes config.
 - ``browser_flow`` / ``assisted_flow`` / ``flow_import``: run the creative
   stages and save the prompt to a file, then STOP with a message telling the
   user to run the (later-phase) browser command.
@@ -210,8 +210,8 @@ def run_captions(job: Job, store: JobStore) -> Job:
 
 
 def finalize_approval(job: Job, store: JobStore) -> Job:
-    """Move a fully-processed job to ``awaiting_approval``. Never auto-publishes."""
-    job.advance(JobStatus.AWAITING_APPROVAL, note="awaiting human approval (no auto-publish)")
+    """Move a fully-processed job to the configured approval/publish boundary."""
+    job.advance(JobStatus.AWAITING_APPROVAL, note="finished and ready to publish")
     store.save(job)
     return job
 
@@ -221,12 +221,16 @@ def finish_after_import(job: Job, store: JobStore) -> Job:
 
     Shared by the browser worker (after it imports a downloaded clip) and the
     ``import-latest-browser-download`` manual-recovery path, so both reach
-    ``awaiting_approval`` via exactly the same stages.  Never auto-publishes.
+    ``awaiting_approval`` via exactly the same stages, then publishes only when
+    the user explicitly enabled automatic publishing in Hermes config.
     """
     run_review(job, store)
     run_render(job, store)
     run_captions(job, store)
     finalize_approval(job, store)
+    from social_video_factory.publish import maybe_auto_publish
+
+    maybe_auto_publish(job, store)
     return job
 
 
@@ -274,4 +278,7 @@ def generate_one(
     run_render(job, store)
     run_captions(job, store)
     finalize_approval(job, store)
+    from social_video_factory.publish import maybe_auto_publish
+
+    maybe_auto_publish(job, store)
     return job

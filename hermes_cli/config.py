@@ -806,7 +806,7 @@ def _ensure_hermes_home_managed(home: Path):
 # =============================================================================
 
 DEFAULT_CONFIG = {
-    "model": "",
+    "model": "mistral-small",
     "providers": {},
     "fallback_providers": [],
     "credential_pool_strategies": {},

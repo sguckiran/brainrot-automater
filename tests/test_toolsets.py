@@ -122,6 +122,7 @@ class TestValidateToolset:
     def test_valid(self):
         assert validate_toolset("web") is True
         assert validate_toolset("terminal") is True
+        assert validate_toolset("social_video_factory") is True
 
     def test_all_alias_valid(self):
         assert validate_toolset("all") is True

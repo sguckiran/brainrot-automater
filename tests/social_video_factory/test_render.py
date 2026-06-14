@@ -29,7 +29,7 @@ def test_build_srt_empty_input():
     assert build_srt("   \n  \n") == ""
 
 
-def test_build_ffmpeg_command_contains_required_filters():
+def test_build_ffmpeg_command_is_clean_by_default():
     argv = build_ffmpeg_command(
         input_path="in.mp4",
         srt_path="subs.srt",
@@ -41,13 +41,25 @@ def test_build_ffmpeg_command_contains_required_filters():
     assert "in.mp4" in argv
     assert "out.mp4" in argv
 
-    # The single -vf filtergraph holds scale, subtitles, drawtext, watermark.
+    # Text is not burned in unless explicitly enabled.
     vf_index = argv.index("-vf")
     vf = argv[vf_index + 1]
     assert f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}" in vf
+    assert "subtitles=" not in vf
+    assert "drawtext=" not in vf
+
+
+def test_build_ffmpeg_command_can_opt_in_to_text_overlays():
+    argv = build_ffmpeg_command(
+        "in.mp4",
+        "subs.srt",
+        "out.mp4",
+        "HOOK",
+        "@wm",
+        include_text_overlays=True,
+    )
+    vf = argv[argv.index("-vf") + 1]
     assert "subtitles=" in vf
-    assert "subs.srt" in vf
-    assert "drawtext=" in vf
     assert "HOOK" in vf
     assert "@wm" in vf
 
@@ -66,6 +78,7 @@ def test_build_ffmpeg_command_uses_explicit_windows_font():
         "h",
         "w",
         font_path=r"C:\Windows\Fonts\arial.ttf",
+        include_text_overlays=True,
     )
     vf = argv[argv.index("-vf") + 1]
     assert vf.count("fontfile='C\\:/Windows/Fonts/arial.ttf'") == 2

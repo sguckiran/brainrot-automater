@@ -5,7 +5,7 @@
 # =============================================================================
 # Model Configuration
 # =============================================================================
-model:
+model: "mistralai/mistral-small-3.2"
   # Default model to use (can be overridden with --model flag)
   # Both "default" and "model" work as the key name here.
   default: "anthropic/claude-opus-4.6"

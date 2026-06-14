@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Social Video Factory — Hermes tool surface (Phase 5).
 
-Exposes the ``social_video_factory`` package to the Hermes agent as four
+Exposes the ``social_video_factory`` package to the Hermes agent as five
 self-registering tools (toolset ``social_video_factory``):
 
   * ``social_video_factory_browser_login`` — returns SAFE guidance for the
@@ -16,7 +16,7 @@ self-registering tools (toolset ``social_video_factory``):
 SAFETY POSTURE (every tool, enforced here):
   * The browser path drives the user's OWN logged-in Chromium profile against
     their existing subscription.  It NEVER bypasses login, usage limits, or
-    safety, and NEVER auto-publishes.
+    safety. Publishing is separately gated by explicit Hermes configuration.
   * CRITICAL — NON-INTERACTIVE: the underlying worker/queue can hit two stdin
     gates — the rate-limit human-confirm (``RateLimiter.confirm``) and the
     selector ``manual_pause`` (``controller.wait_for_enter``).  A Hermes tool
@@ -131,8 +131,8 @@ _LOGIN_SCHEMA: Dict[str, Any] = {
     "name": "social_video_factory_browser_login",
     "description": (
         "Return SAFE guidance for the one-time, human-driven browser login "
-        "used by social_video_factory's browser_flow mode. Login REQUIRES a "
-        "human at a terminal (you sign in to your OWN Flow/Gemini account in a "
+        "used by social_video_factory. Login REQUIRES a human at a terminal "
+        "(you sign in to your OWN Flow/Gemini/Instagram/TikTok account in a "
         "real Chromium window), so this tool does NOT and CANNOT perform or "
         "bypass login — it only returns the exact CLI command to run, the "
         "resolved target URL (or a note that SOCIAL_FACTORY_FLOW_URL / "
@@ -146,7 +146,7 @@ _LOGIN_SCHEMA: Dict[str, Any] = {
         "properties": {
             "target": {
                 "type": "string",
-                "enum": ["flow", "gemini"],
+                "enum": ["flow", "gemini", "instagram", "tiktok"],
                 "description": "Which web UI to log in to (default flow).",
                 "default": "flow",
             },
@@ -178,13 +178,18 @@ def _handle_browser_login(args: Dict[str, Any], **_kw: Any) -> str:
     from social_video_factory import config
 
     target = (args.get("target") or "flow").strip().lower()
-    if target not in {"flow", "gemini"}:
-        return tool_error(
-            f"invalid target {target!r}; expected 'flow' or 'gemini'"
-        )
+    if target not in {"flow", "gemini", "instagram", "tiktok"}:
+        return tool_error(f"invalid target {target!r}")
 
     explicit_url = (args.get("url") or "").strip() or None
-    configured_url = config.gemini_url() if target == "gemini" else config.flow_url()
+    if target in {"instagram", "tiktok"}:
+        from social_video_factory.publish import PLATFORM_URLS
+
+        configured_url = PLATFORM_URLS[target]
+        profile_dir = config.social_profile_dir(target)
+    else:
+        configured_url = config.gemini_url() if target == "gemini" else config.flow_url()
+        profile_dir = config.profile_dir()
     resolved_url = explicit_url or configured_url or None
     env_var = (
         "SOCIAL_FACTORY_GEMINI_URL" if target == "gemini" else "SOCIAL_FACTORY_FLOW_URL"
@@ -202,8 +207,8 @@ def _handle_browser_login(args: Dict[str, Any], **_kw: Any) -> str:
             if resolved_url
             else f"no URL configured; set {env_var} (or pass url) before logging in"
         ),
-        "profile_dir": str(config.profile_dir()),
-        "profile_exists": _profile_initialized(),
+        "profile_dir": str(profile_dir),
+        "profile_exists": profile_dir.is_dir() and any(profile_dir.iterdir()),
         "note": (
             "Login is manual and human-driven: run the command above in your "
             "terminal, sign in to your OWN account in the Chromium window that "
@@ -231,7 +236,8 @@ _GENERATE_SCHEMA: Dict[str, Any] = {
         "the user's OWN logged-in Chromium profile; runs NON-INTERACTIVELY (it "
         "never blocks on stdin — a due human-confirm or manual pause resolves "
         "to a needs_human outcome instead of hanging). NEVER bypasses login, "
-        "usage limits, or safety refusals; NEVER auto-publishes. Returns "
+        "usage limits, or safety refusals. Publishing runs only when explicitly "
+        "enabled in Hermes config. Returns "
         "JSON {status, job_id, downloaded_path, reason, job_status}; status is "
         "one of success | needs_human | rate_limited | error."
     ),
@@ -349,7 +355,7 @@ _RUN_QUEUE_SCHEMA: Dict[str, Any] = {
         "STOPPING on the first needs_human / error / rate_limited outcome. "
         "Drives the user's OWN logged-in Chromium profile; runs NON-"
         "INTERACTIVELY (never blocks on stdin). NEVER bypasses login, usage "
-        "limits, or safety; NEVER auto-publishes. Returns JSON {processed, "
+        "limits, or safety. Publishing is separately config-gated. Returns JSON {processed, "
         "stopped_reason, outcomes:[{status, job_id, downloaded_path, reason}]}."
     ),
     "parameters": {
@@ -420,8 +426,8 @@ _IMPORT_SCHEMA: Dict[str, Any] = {
         "Manual-recovery path: find the NEWEST video in the browser downloads "
         "dir, import it for the given job, then continue the pipeline (review "
         "-> render -> captions -> awaiting_approval). Use after a manual browser "
-        "step left a finished clip in the downloads folder. NEVER auto-"
-        "publishes. Returns the job summary JSON {id, status, "
+        "step left a finished clip in the downloads folder. Publishing runs "
+        "only when explicitly enabled. Returns the job summary JSON {id, status, "
         "imported_media_path, rendered_path, captions, ...}."
     ),
     "parameters": {
@@ -466,6 +472,54 @@ def _handle_import_latest(args: Dict[str, Any], **_kw: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool 5: publish_job
+# ---------------------------------------------------------------------------
+
+_PUBLISH_SCHEMA: Dict[str, Any] = {
+    "name": "social_video_factory_publish_job",
+    "description": (
+        "Publish an already rendered social_video_factory job to Instagram "
+        "and/or TikTok using the user's saved Playwright browser profiles. "
+        "Uses the job's generated captions and hashtags. Publishing only runs "
+        "when explicitly enabled in Hermes config; it never types passwords "
+        "or bypasses login, CAPTCHA, verification, or platform safety checks."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "job_id": {"type": "string", "description": "Finished job id."},
+            "platforms": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["instagram", "tiktok"]},
+                "description": "Optional targets; defaults to configured platforms.",
+            },
+        },
+        "required": ["job_id"],
+    },
+}
+
+
+def _handle_publish_job(args: Dict[str, Any], **_kw: Any) -> str:
+    from social_video_factory.publish import publish_job
+    from social_video_factory.store import JobStore
+
+    job_id = (args.get("job_id") or "").strip()
+    if not job_id:
+        return tool_error("job_id is required")
+    store = JobStore()
+    try:
+        job = store.load(job_id)
+    except FileNotFoundError:
+        return tool_error(f"job not found: {job_id}", job_id=job_id)
+    platforms = args.get("platforms")
+    try:
+        publish_job(job, store, platforms if isinstance(platforms, list) else None)
+    except (RuntimeError, ValueError) as exc:
+        return tool_error(str(exc), job_id=job_id)
+    return json.dumps(store.load(job_id).to_dict(), ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -505,6 +559,17 @@ registry.register(
     requires_env=[],
     is_async=False,
     emoji="🎬",
+)
+
+registry.register(
+    name="social_video_factory_publish_job",
+    toolset=_TOOLSET,
+    schema=_PUBLISH_SCHEMA,
+    handler=_handle_publish_job,
+    check_fn=_svf_available,
+    requires_env=[],
+    is_async=False,
+    emoji="UP",
 )
 
 registry.register(

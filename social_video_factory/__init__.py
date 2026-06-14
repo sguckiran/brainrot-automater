@@ -2,7 +2,8 @@
 
 This package builds vertical 9:16 short videos through a staged pipeline:
 idea -> script -> prompt -> generate -> import -> review -> render -> captions
--> awaiting human approval.  It NEVER auto-publishes.
+-> awaiting human approval. Browser publishing is available only behind an
+explicit Hermes config opt-in.
 
 Phase 1 implements the skeleton plus a fully working ``mock`` generation mode
 that runs end-to-end even when ffmpeg/ffprobe are not installed (it degrades

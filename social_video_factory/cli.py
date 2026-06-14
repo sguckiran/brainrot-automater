@@ -34,6 +34,7 @@ def _job_summary(job: Job) -> dict[str, object]:
         "provider": job.provider,
         "rendered_path": job.rendered_path,
         "imported_media_path": job.imported_media_path,
+        "publish_results": job.publish_results,
     }
 
 
@@ -85,6 +86,12 @@ def browser_login(target: str = "flow", url: str | None = None) -> None:
         target: ``flow`` (default) or ``gemini`` — picks which URL to open.
         url: explicit URL to open; overrides the configured ``target`` URL.
     """
+    if target in {"instagram", "tiktok"}:
+        from social_video_factory.publish import login
+
+        login(target)
+        return
+
     # Imported here so the module stays importable without the browser deps.
     from social_video_factory.browser import BrowserUnavailable, get_controller
 
@@ -243,7 +250,7 @@ def import_latest_browser_download(job_id: str) -> None:
     download yourself: it finds the most recent video in the configured
     downloads dir, imports it for ``job_id``, then runs the SAME post-import
     tail the worker runs (review -> render -> captions -> awaiting_approval).
-    Never auto-publishes.
+    Config-gated publishing may continue after import when explicitly enabled.
 
     Exit codes: 0 success | 2 job not found | 5 no video download found.
 
@@ -270,6 +277,25 @@ def import_latest_browser_download(job_id: str) -> None:
     print(json.dumps(_job_summary(job), indent=2, ensure_ascii=False))
 
 
+def publish_job(job_id: str, platforms: str = "") -> None:
+    """Publish a rendered job to configured Instagram/TikTok accounts."""
+    from social_video_factory.publish import publish_job as _publish_job
+
+    store = JobStore()
+    try:
+        job = store.load(job_id)
+    except FileNotFoundError:
+        print(f"job not found: {job_id}", file=sys.stderr)
+        raise SystemExit(2) from None
+    selected = [value.strip() for value in platforms.split(",") if value.strip()]
+    try:
+        _publish_job(job, store, selected or None)
+    except (RuntimeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
+    print(json.dumps(_job_summary(job), indent=2, ensure_ascii=False))
+
+
 def main() -> None:
     """Entry point used by ``__main__`` and ``python -m ...cli``."""
     fire.Fire(
@@ -281,6 +307,7 @@ def main() -> None:
             "browser-generate": browser_generate,
             "browser-run-queue": browser_run_queue,
             "import-latest-browser-download": import_latest_browser_download,
+            "publish-job": publish_job,
         }
     )
 

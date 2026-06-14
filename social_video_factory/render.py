@@ -103,6 +103,7 @@ def build_ffmpeg_command(
     hook_text: str,
     watermark_text: str,
     font_path: str | Path | None = None,
+    include_text_overlays: bool = False,
 ) -> list[str]:
     """Build the ffmpeg argv that renders a 1080x1920 MP4.
 
@@ -124,16 +125,20 @@ def build_ffmpeg_command(
         f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black,"
         f"setsar=1"
     )
-    subtitles = f"subtitles='{srt_for_filter}'"
-    hook_overlay = (
-        f"drawtext={font_option}text='{hook}':fontcolor=white:fontsize=64:borderw=4:"
-        f"bordercolor=black:x=(w-text_w)/2:y=h*0.08"
-    )
-    watermark_overlay = (
-        f"drawtext={font_option}text='{watermark}':fontcolor=white@0.85:fontsize=36:"
-        f"borderw=2:bordercolor=black:x=(w-text_w)/2:y=h*0.90"
-    )
-    vf = ",".join([scale_pad, subtitles, hook_overlay, watermark_overlay])
+    filters = [scale_pad]
+    if include_text_overlays:
+        subtitles = f"subtitles='{srt_for_filter}'"
+        hook_overlay = (
+            f"drawtext={font_option}text='{hook}':fontcolor=white:fontsize=64:"
+            f"borderw=4:bordercolor=black:x=(w-text_w)/2:y=h*0.08"
+        )
+        watermark_overlay = (
+            f"drawtext={font_option}text='{watermark}':fontcolor=white@0.85:"
+            f"fontsize=36:borderw=2:bordercolor=black:"
+            f"x=(w-text_w)/2:y=h*0.90"
+        )
+        filters.extend([subtitles, hook_overlay, watermark_overlay])
+    vf = ",".join(filters)
 
     return [
         "ffmpeg",
@@ -171,9 +176,10 @@ def render_9x16(job: Job) -> Path | None:
 
     output_path = config.rendered_dir() / f"SVF_{job.id}_{job.template or 'clip'}_9x16.mp4"
     srt_path = config.rendered_dir() / f"SVF_{job.id}.srt"
-    srt_text = build_srt(job.script)
-    with srt_path.open("w", encoding="utf-8") as fh:
-        fh.write(srt_text)
+    include_text_overlays = config.burn_text_overlays()
+    if include_text_overlays:
+        with srt_path.open("w", encoding="utf-8") as fh:
+            fh.write(build_srt(job.script))
 
     if not shutil.which("ffmpeg"):
         # Caller (pipeline) marks this as a graceful skip; do not crash.
@@ -187,6 +193,7 @@ def render_9x16(job: Job) -> Path | None:
         hook_text=hook_text,
         watermark_text=config.WATERMARK_TEXT,
         font_path=_find_font_file(),
+        include_text_overlays=include_text_overlays,
     )
     try:
         subprocess.run(command, capture_output=True, check=True)

@@ -1,0 +1,5 @@
+name: mistral
+kind: model-provider
+version: 1.0.0
+description: Mistral AI provider profile for Hermes Agent
+author: Automated patch

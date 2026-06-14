@@ -76,8 +76,26 @@ def test_bool_and_int_env_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv(config.ENV_AUTO_PUBLISH, "yes")
     monkeypatch.setenv(config.ENV_MAX_GEN_PER_HOUR, "9")
     assert config.browser_headless() is True
-    assert config.auto_publish() is True
+    # The legacy env switch alone cannot enable an external side effect.
+    assert config.auto_publish() is False
     assert config.max_generations_per_hour() == 9
+
+
+def test_publishing_reads_explicit_hermes_config(monkeypatch, tmp_path):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text(
+        "social_video_factory:\n"
+        "  publishing:\n"
+        "    enabled: true\n"
+        "    auto_after_generation: true\n"
+        "    platforms: [tiktok, instagram, tiktok]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    assert config.publishing_enabled() is True
+    assert config.auto_publish() is True
+    assert config.publish_platforms() == ["tiktok", "instagram"]
 
 
 def test_int_env_invalid_falls_back(monkeypatch, tmp_path):

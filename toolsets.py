@@ -142,6 +142,21 @@ TOOLSETS = {
         "includes": []
     },
 
+    "social_video_factory": {
+        "description": (
+            "Browser-assisted vertical video generation and configured "
+            "Instagram/TikTok publishing"
+        ),
+        "tools": [
+            "social_video_factory_browser_login",
+            "social_video_factory_browser_generate_job",
+            "social_video_factory_browser_run_queue",
+            "social_video_factory_import_latest_browser_download",
+            "social_video_factory_publish_job",
+        ],
+        "includes": [],
+    },
+
     "computer_use": {
         "description": (
             "Background macOS desktop control via cua-driver — screenshots, "

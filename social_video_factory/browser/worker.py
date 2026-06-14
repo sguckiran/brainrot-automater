@@ -14,7 +14,8 @@ CONSERVATIVE BY DESIGN (every one of these is enforced below):
     window; we never guess or force.
   * We NEVER bypass login, usage limits, or safety.  On a hard stop we screenshot,
     mark the job ``needs_human`` with a reason, close the browser, and return.
-  * We NEVER auto-publish; success only carries the job to ``awaiting_approval``.
+  * Publishing is separately config-gated; the browser generation worker never
+    bypasses login, limits, verification, or safety screens.
   * Secrets are never logged — artifacts go through ``artifacts.redact``.
 
 Everything external (controller, rate limiter, selector config, artifact logger)
@@ -394,8 +395,8 @@ def generate_in_browser(
         except Exception:
             pass
 
-        # 11. Continue via the Phase-1 pipeline stages (no auto-publish): import
-        #     then the shared review -> render -> captions -> approval tail.
+        # 11. Continue via the shared import -> review -> render -> captions
+        #     tail. Config-gated publishing may run after that tail.
         pipeline.run_import(job, store, src_path=downloaded)
         pipeline.finish_after_import(job, store)
 

@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
+import yaml
 
 # Load a project .env once at import.  load_dotenv() is a no-op if absent and
 # never overrides already-set process env vars, so tests that set
@@ -109,6 +111,14 @@ def profile_dir() -> Path:
     return _sub("chromium_profile")
 
 
+def social_profile_dir(platform: str) -> Path:
+    """Persistent browser profile for a social publishing platform."""
+    normalized = platform.strip().lower()
+    if normalized not in {"instagram", "tiktok"}:
+        raise ValueError(f"unsupported social platform: {platform!r}")
+    return _sub("social_profiles", normalized)
+
+
 def downloads_dir() -> Path:
     """Where the browser worker drops downloaded clips (later phases)."""
     override = os.environ.get(ENV_BROWSER_DOWNLOAD_DIR)
@@ -182,6 +192,66 @@ def selectors_file() -> str:
     return os.environ.get(ENV_SELECTORS_FILE, "").strip()
 
 
+def _hermes_config() -> dict[str, Any]:
+    """Read user-facing publishing settings from Hermes config.yaml."""
+    try:
+        from hermes_constants import get_hermes_home
+
+        hermes_home = get_hermes_home()
+    except ImportError:
+        hermes_home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    path = hermes_home / "config.yaml"
+    try:
+        with path.open(encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _publish_config() -> dict[str, Any]:
+    root = _hermes_config().get("social_video_factory", {})
+    if not isinstance(root, dict):
+        return {}
+    value = root.get("publishing", {})
+    return value if isinstance(value, dict) else {}
+
+
+def publishing_enabled() -> bool:
+    """Whether browser publishing is explicitly enabled by the user."""
+    return bool(_publish_config().get("enabled", False))
+
+
 def auto_publish() -> bool:
-    """Publishing always stays manual + approved; default False, never bypassed."""
-    return _bool_env(ENV_AUTO_PUBLISH, default=False)
+    """Whether successful generation should continue into publishing."""
+    configured = _publish_config().get("auto_after_generation")
+    if configured is not None:
+        return publishing_enabled() and bool(configured)
+    # Legacy compatibility for the original unused environment switch.
+    return publishing_enabled() and _bool_env(ENV_AUTO_PUBLISH, default=False)
+
+
+def publish_platforms() -> list[str]:
+    """Configured publishing targets, normalized and de-duplicated."""
+    raw = _publish_config().get("platforms", ["instagram", "tiktok"])
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return ["instagram", "tiktok"]
+    result: list[str] = []
+    for value in raw:
+        platform = str(value).strip().lower()
+        if platform in {"instagram", "tiktok"} and platform not in result:
+            result.append(platform)
+    return result or ["instagram", "tiktok"]
+
+
+def burn_text_overlays() -> bool:
+    """Whether render should burn scripts/hooks/watermarks into the video."""
+    root = _hermes_config().get("social_video_factory", {})
+    if not isinstance(root, dict):
+        return False
+    rendering = root.get("rendering", {})
+    if not isinstance(rendering, dict):
+        return False
+    return bool(rendering.get("burn_text_overlays", False))
