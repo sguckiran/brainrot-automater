@@ -1,0 +1,14 @@
+[Unit]
+Description=Run social_video_factory autopilot on a cadence
+
+[Timer]
+# First run shortly after boot, then every 60 minutes. Tune OnUnitActiveSec to
+# taste, but remember the local daily cap (default 20) is the real ceiling.
+OnBootSec=5min
+OnUnitActiveSec=60min
+# If the machine was asleep/off when a run was due, run once on resume.
+Persistent=true
+Unit=social-video-autopilot.service
+
+[Install]
+WantedBy=timers.target

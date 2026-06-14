@@ -1,0 +1,19 @@
+[Unit]
+# Serves noVNC (a browser-based VNC client) on localhost:6080, bridging to the
+# x11vnc server. With the SSH tunnel from the setup guide you open
+# http://localhost:6080/vnc.html on your laptop/phone to solve a CAPTCHA in the
+# live browser. localhost-bound; no inbound exposure.
+Description=noVNC web view for social_video_factory
+After=x11vnc.service
+Requires=x11vnc.service
+
+[Service]
+# Path to the bundled noVNC web assets differs by distro; /usr/share/novnc is
+# the Debian/Ubuntu default (the `novnc` package).
+ExecStart=/usr/bin/websockify --web=/usr/share/novnc 6080 localhost:5900
+Restart=always
+RestartSec=2
+User=svf
+
+[Install]
+WantedBy=multi-user.target

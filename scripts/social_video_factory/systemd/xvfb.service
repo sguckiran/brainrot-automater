@@ -1,0 +1,17 @@
+[Unit]
+# Virtual framebuffer that gives headed Chromium a display WITHOUT a physical
+# screen — this is what makes the whole pipeline invisible. Nothing renders to
+# any monitor; Chromium paints into this in-memory display on :99.
+Description=Xvfb virtual display for social_video_factory
+After=network.target
+
+[Service]
+# 1280x2280 is a tall canvas comfortable for the vertical 9:16 web UIs.
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1280x2280x24 -nolisten tcp
+Restart=always
+RestartSec=2
+# Run as the same unprivileged user that owns the browser profiles.
+User=svf
+
+[Install]
+WantedBy=multi-user.target

@@ -83,6 +83,28 @@ Verdict: accepted. **All 6 phases complete.**
 
 ---
 
+## Phase 7 — autonomous unattended operation (headless VM) — ✅ DONE (2026-06-14)
+
+Built in single-agent + checkpoint mode (no subagents).
+
+- **New code**: `config.py` autopilot accessors (`autopilot_templates/topics/target_pending/per_run_limit`, reading `social_video_factory.autopilot.*` from Hermes config); `notify.py` (Telegram/Discord via httpx, reusing `TELEGRAM_BOT_TOKEN`/`TELEGRAM_HOME_CHANNEL`; quiet no-op without creds; token never logged); `topics.py` (deterministic rotating `(template,topic)` source with a persisted cursor); `autopilot.py` `run_once` (top up queue → `run_queue` → summarize → alert on needs_human/error; fully injectable); `cli.py` `autopilot` command (always exit 0).
+- **Reused**: `queue.run_queue` (+ `PENDING_STATUSES`), `pipeline.generate_one`/`finish_after_import`→`publish.maybe_auto_publish` (auto-publish gated on config), `config._hermes_config`.
+- **VM provisioning** (`scripts/social_video_factory/`): `setup_vm.sh`, `run_autopilot.sh`, systemd `xvfb.service` + `social-video-autopilot.{service,timer}`, `social-video-factory.env.example` (sets `REQUIRE_HUMAN_CONFIRM_EVERY=0` + `HEADLESS=false` for headed-under-Xvfb). Docs: `website/docs/user-guide/features/autonomous-vm.md`.
+- **Tests**: `test_autopilot/test_topics/test_notify` (fakes; run_queue sleep neutralized in tests). Fixed the env-coupled `test_mock_render_skipped_gracefully_without_ffmpeg` → `skipif(shutil.which("ffmpeg"))`.
+- **Verification**: `130 passed, 1 skipped`; ruff clean; shell scripts pass `bash -n`; `autopilot` CLI dry-run exits 0 with "nothing to do" when no topics configured.
+- **Design note**: invisibility = headless VM + headed Chromium on Xvfb `:99`; one-time login seeding via temporary VNC; not 100% hands-off by design (challenges → Telegram alert → ~2-min VNC re-login).
+
+## Phase 7b — supervised CAPTCHA pause + noVNC live view — ✅ DONE (2026-06-14)
+
+User wants ~3/hr cadence and, on a CAPTCHA, to be pinged + shown the LIVE challenge to solve it themselves (NOT auto-solved — held the line on CAPTCHA-solving/stealth/proxies as out of scope).
+
+- **Worker (`browser/worker.py`)**: added supervised-pause mode. New `_SUPERVISABLE_HARD_STOPS` (login/captcha/suspicious/age-id/account-recovery/consent — NOT rate_limit/payment/subscription/safety/content). `_await_human_clear` polls `detect_hard_stop` until the page clears or times out (observe-only; never touches the challenge). `_handle_hard_stop` notifies (with noVNC link) + holds the browser open + continues if the human clears it, else falls through to `_needs_human`. All 3 hard-stop checkpoints route through it. New `generate_in_browser` params `supervised`/`supervised_timeout_s`/`notifier` (default from config).
+- **Config**: `supervised_pause()` (env `SOCIAL_FACTORY_SUPERVISED_PAUSE`, default false), `supervised_pause_timeout()` (default 600), `novnc_url()`.
+- **VM provisioning**: added `x11vnc.service` + `novnc.service` (websockify on :6080 → live view of Xvfb :99, localhost-bound via SSH tunnel); `setup_vm.sh` installs `novnc`/`websockify` + enables them; env example sets `SUPERVISED_PAUSE=true` + `NOVNC_URL`; docs updated (CAPTCHA-never-auto-solved note + supervised flow + noVNC login/solve).
+- **Cadence**: documented `per_run_limit: 3` + hourly timer (existing `MAX_GENERATIONS_PER_HOUR=3` is the ceiling).
+- **Tests**: `test_supervised_pause_waits_then_continues` (CAPTCHA clears → run continues to success, human pinged) and `test_supervised_pause_times_out_to_needs_human` (never clears → needs_human, no record). Suite: `132 passed, 1 skipped`; ruff clean; shell scripts `bash -n` ok; supervised defaults off.
+- **Boundary held**: declined automated CAPTCHA-solving / stealth / proxy rotation (circumvention of bot-detection). Built the compliant human-in-the-loop instead.
+
 ## Outstanding (optional, non-blocking) follow-ups
 - `hard_stops` `consent_policy_modal` defaults (`"we use cookies"`, `"i agree"`, `"accept all"`) scanned over full `html()` may false-positive on Google cookie banners → premature `needs_human`. Consider matching visible text and/or trimming the broadest consent phrases against the live UI.
 - The bundled `browser_selectors.example.yaml` selectors are deliberate placeholders; they must be tuned against the live Flow/Gemini UI (expected — the layered resolver + manual pause cover the gap meanwhile).

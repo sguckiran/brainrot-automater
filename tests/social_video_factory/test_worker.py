@@ -310,6 +310,64 @@ def test_no_url_configured_returns_error(monkeypatch):
     assert controller.started is False
 
 
+def test_supervised_pause_waits_then_continues(monkeypatch):
+    # A CAPTCHA shows up, the human solves it in the live session (page clears),
+    # and the SAME run continues to success — nothing is auto-solved.
+    store = JobStore()
+    job = _make_job()
+    store.save(job)
+
+    class ClearingController(FakeController):
+        def __init__(self):
+            super().__init__()
+            self._checks = 0
+
+        def visible_text(self):
+            self._checks += 1
+            # CAPTCHA for the first two scans, then the human has cleared it.
+            return "verify you are human reCAPTCHA" if self._checks <= 2 else "ready"
+
+    controller = ClearingController()
+    rl = FakeRateLimiter()
+    locators = _full_locators()
+    resolver = FakeResolver(locators=locators)
+    monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
+    _mock_flow_ui(monkeypatch, locators)
+    notes: list[str] = []
+
+    outcome = generate_in_browser(
+        job, store, controller=controller, rate_limiter=rl, selectors_config={},
+        supervised=True, supervised_timeout_s=30, notifier=lambda t: notes.append(t),
+        poll_timeout_s=5, poll_interval_s=0,
+    )
+
+    assert outcome.status == "success"
+    assert rl.records == 1
+    # The human was pinged with an actionable "needs you now" message.
+    assert any("needs you" in n.lower() for n in notes)
+
+
+def test_supervised_pause_times_out_to_needs_human(monkeypatch):
+    # CAPTCHA never clears within the timeout -> conservative stop, no record.
+    store = JobStore()
+    job = _make_job()
+    store.save(job)
+    controller = FakeController(html="verify you are human reCAPTCHA")
+    rl = FakeRateLimiter()
+    resolver = FakeResolver(locators=_full_locators())
+    monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
+
+    outcome = generate_in_browser(
+        job, store, controller=controller, rate_limiter=rl, selectors_config={},
+        supervised=True, supervised_timeout_s=0, notifier=lambda t: None,
+    )
+
+    assert outcome.status == "needs_human"
+    assert "captcha" in (outcome.reason or "")
+    assert controller.closed is True
+    assert rl.records == 0
+
+
 def test_no_video_download_marks_needs_human(monkeypatch):
     store = JobStore()
     job = _make_job()

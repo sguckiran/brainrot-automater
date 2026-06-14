@@ -1,0 +1,16 @@
+[Unit]
+# Exposes the Xvfb virtual display (:99) over VNC on localhost only, so the
+# noVNC web view can show you the LIVE browser during a supervised CAPTCHA
+# pause. localhost-bound — reach it via the SSH tunnel in the setup guide.
+Description=x11vnc for social_video_factory supervised view
+After=xvfb.service
+Requires=xvfb.service
+
+[Service]
+ExecStart=/usr/bin/x11vnc -display :99 -localhost -forever -shared -rfbport 5900 -nopw -quiet
+Restart=always
+RestartSec=2
+User=svf
+
+[Install]
+WantedBy=multi-user.target

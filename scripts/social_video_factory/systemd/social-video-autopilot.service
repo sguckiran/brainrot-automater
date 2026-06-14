@@ -1,0 +1,20 @@
+[Unit]
+# One autopilot pass: top up the queue, generate, render, caption, auto-publish,
+# and alert on Telegram/Discord if anything needs a human. Triggered by the
+# companion .timer — this is a oneshot, not a daemon.
+Description=social_video_factory autopilot (one pass)
+After=xvfb.service network-online.target
+Requires=xvfb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=svf
+EnvironmentFile=/etc/social-video-factory.env
+ExecStart=/bin/bash /home/svf/brainrot-automater/scripts/social_video_factory/run_autopilot.sh
+# A pass can pace itself across several generations (rate-limit gaps); give it
+# room but don't let a hung browser run forever.
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

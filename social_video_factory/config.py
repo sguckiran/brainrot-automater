@@ -49,6 +49,9 @@ ENV_MIN_SECONDS_BETWEEN_GEN = "SOCIAL_FACTORY_BROWSER_MIN_SECONDS_BETWEEN_GENERA
 ENV_REQUIRE_HUMAN_CONFIRM_EVERY = "SOCIAL_FACTORY_BROWSER_REQUIRE_HUMAN_CONFIRM_EVERY"
 ENV_SELECTORS_FILE = "SOCIAL_FACTORY_SELECTORS_FILE"
 ENV_AUTO_PUBLISH = "SOCIAL_FACTORY_AUTO_PUBLISH"
+ENV_SUPERVISED_PAUSE = "SOCIAL_FACTORY_SUPERVISED_PAUSE"
+ENV_SUPERVISED_PAUSE_TIMEOUT = "SOCIAL_FACTORY_SUPERVISED_PAUSE_TIMEOUT"
+ENV_NOVNC_URL = "SOCIAL_FACTORY_NOVNC_URL"
 
 # Default data root, relative to CWD unless SOCIAL_FACTORY_DATA_DIR is set.
 DEFAULT_DATA_DIR_NAME = ".social_video_factory"
@@ -192,6 +195,28 @@ def selectors_file() -> str:
     return os.environ.get(ENV_SELECTORS_FILE, "").strip()
 
 
+def supervised_pause() -> bool:
+    """Whether to HOLD the browser open on a human-solvable challenge.
+
+    When true, a CAPTCHA / verification / consent screen does NOT immediately
+    end the run: the worker notifies (with the noVNC link) and waits for the
+    user to clear the challenge in the live session, then continues. The user
+    still solves it — we never solve or bypass it. Default false (pure
+    unattended exits fast and retries next cycle).
+    """
+    return _bool_env(ENV_SUPERVISED_PAUSE, default=False)
+
+
+def supervised_pause_timeout() -> int:
+    """How long (seconds) to hold the browser waiting for the human (default 600)."""
+    return _int_env(ENV_SUPERVISED_PAUSE_TIMEOUT, 600)
+
+
+def novnc_url() -> str:
+    """URL of the VM's noVNC view of the live browser, included in alerts ('' if unset)."""
+    return os.environ.get(ENV_NOVNC_URL, "").strip()
+
+
 def _hermes_config() -> dict[str, Any]:
     """Read user-facing publishing settings from Hermes config.yaml."""
     try:
@@ -255,3 +280,55 @@ def burn_text_overlays() -> bool:
     if not isinstance(rendering, dict):
         return False
     return bool(rendering.get("burn_text_overlays", False))
+
+
+# --- autopilot (unattended loop) config ------------------------------------
+
+
+def _autopilot_config() -> dict[str, Any]:
+    root = _hermes_config().get("social_video_factory", {})
+    if not isinstance(root, dict):
+        return {}
+    value = root.get("autopilot", {})
+    return value if isinstance(value, dict) else {}
+
+
+def _str_list(value: Any) -> list[str]:
+    """Coerce a config value into a clean list of non-empty strings."""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def autopilot_templates() -> list[str]:
+    """Template names the unattended loop rotates through (default: one)."""
+    return _str_list(_autopilot_config().get("templates")) or ["dancing_cat"]
+
+
+def autopilot_topics() -> list[str]:
+    """Topic strings the unattended loop rotates through.
+
+    Empty by default — the loop only enqueues new work when topics are
+    configured, so a fresh install never posts until the user opts in.
+    """
+    return _str_list(_autopilot_config().get("topics"))
+
+
+def autopilot_target_pending() -> int:
+    """How many pending browser_flow jobs to keep queued (default 3)."""
+    value = _autopilot_config().get("target_pending", 3)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 3
+
+
+def autopilot_per_run_limit() -> int:
+    """How many jobs a single autopilot pass will generate (default 2)."""
+    value = _autopilot_config().get("per_run_limit", 2)
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return 2

@@ -296,6 +296,26 @@ def publish_job(job_id: str, platforms: str = "") -> None:
     print(json.dumps(_job_summary(job), indent=2, ensure_ascii=False))
 
 
+def autopilot(target_pending: int | None = None, per_run_limit: int | None = None) -> None:
+    """Run ONE unattended autopilot pass (top up queue -> generate -> alert).
+
+    Designed to be invoked by a scheduler (systemd timer / Hermes cron) on a
+    cadence. Tops up pending browser_flow jobs from the configured topic
+    rotation, runs the conservative browser queue, auto-publishes when enabled
+    in config, and pushes a Telegram/Discord alert if anything needs a human.
+    Always exits 0 — problems are surfaced via the alert + printed summary, not
+    exit codes, so the scheduler doesn't flap.
+
+    Args:
+        target_pending: keep this many pending jobs queued (default from config).
+        per_run_limit: generate at most this many jobs this pass (default from config).
+    """
+    from social_video_factory.autopilot import run_once
+
+    result = run_once(target_pending=target_pending, per_run_limit=per_run_limit)
+    print(result.summary)
+
+
 def main() -> None:
     """Entry point used by ``__main__`` and ``python -m ...cli``."""
     fire.Fire(
@@ -308,6 +328,7 @@ def main() -> None:
             "browser-run-queue": browser_run_queue,
             "import-latest-browser-download": import_latest_browser_download,
             "publish-job": publish_job,
+            "autopilot": autopilot,
         }
     )
 

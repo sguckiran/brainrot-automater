@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
 from social_video_factory.models import GenerationMode, JobStatus
@@ -40,6 +42,10 @@ def test_mock_pipeline_reaches_awaiting_approval():
     assert reloaded.status == JobStatus.AWAITING_APPROVAL.value
 
 
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is not None,
+    reason="asserts the graceful skip path that only happens when ffmpeg is absent",
+)
 def test_mock_render_skipped_gracefully_without_ffmpeg():
     # ffmpeg is not installed in the dev env, so render is skipped, not crashed.
     job = generate_one("t", "x", generation_mode="mock")

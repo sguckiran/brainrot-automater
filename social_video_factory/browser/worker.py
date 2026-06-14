@@ -42,6 +42,22 @@ STATUS_NEEDS_HUMAN = "needs_human"
 STATUS_RATE_LIMITED = "rate_limited"
 STATUS_ERROR = "error"
 
+# Hard-stop categories a HUMAN can clear in-place during a supervised pause
+# (they solve it in the live noVNC session and the page advances). Excludes
+# stops that waiting can't fix or must not be retried at: rate_limit,
+# subscription_upgrade, payment, and crucially the safety/content refusals
+# (we never wait-out or nag a safety system).
+_SUPERVISABLE_HARD_STOPS = frozenset(
+    {
+        "login",
+        "captcha",
+        "suspicious_activity",
+        "age_identity_verification",
+        "account_recovery",
+        "consent_policy_modal",
+    }
+)
+
 
 @dataclass
 class GenerationOutcome:
@@ -107,6 +123,77 @@ def _needs_human(
     )
 
 
+def _await_human_clear(
+    controller: Any,
+    selectors_config: dict[str, Any] | None,
+    *,
+    timeout_s: int,
+    poll_s: int = 5,
+) -> bool:
+    """Poll until the blocking screen is gone (human solved it) or timeout.
+
+    Returns True if the page cleared (continue the run), False on timeout. We
+    only OBSERVE the page — the human does the solving in the live session; we
+    never touch the challenge.
+    """
+    deadline = time.monotonic() + max(0, timeout_s)
+    while time.monotonic() < deadline:
+        if detect_hard_stop(_page_text(controller), selectors_config) is None:
+            return True
+        time.sleep(poll_s)
+    # One last check after the loop.
+    return detect_hard_stop(_page_text(controller), selectors_config) is None
+
+
+def _handle_hard_stop(
+    job: Job,
+    store: JobStore,
+    controller: Any,
+    artifacts: Any,
+    key: str,
+    *,
+    supervised: bool,
+    notifier: Callable[[str], Any],
+    novnc_url: str,
+    selectors_config: dict[str, Any] | None,
+    timeout_s: int,
+    reason: str,
+    stage: str = "hard_stop",
+) -> GenerationOutcome | None:
+    """Handle a detected hard stop.
+
+    Returns ``None`` when a supervised human cleared it (the caller continues
+    the SAME run, browser still open). Returns a ``needs_human``
+    :class:`GenerationOutcome` when the run must stop (browser closed).
+    """
+    if supervised and key in _SUPERVISABLE_HARD_STOPS:
+        # Hold the browser open and ask the human to solve it in the live view.
+        try:
+            artifacts.stage(stage, note=f"supervised pause: {reason}", html=True)
+        except Exception:
+            pass
+        link = f"\nSolve it here: {novnc_url}" if novnc_url else ""
+        message = (
+            "🟡 social_video_factory needs you NOW\n"
+            f"job {job.id} hit: {reason}\n"
+            "Open the live browser and solve it; the run is waiting and will "
+            f"continue automatically once it clears.{link}"
+        )
+        try:
+            notifier(message)
+        except Exception:
+            pass
+        if _await_human_clear(controller, selectors_config, timeout_s=timeout_s):
+            try:
+                artifacts.stage("resumed", note=f"human cleared: {key}")
+            except Exception:
+                pass
+            return None  # cleared — continue the run
+        reason = f"{reason} (not cleared within {timeout_s}s)"
+    # Not supervised, not a supervisable category, or timed out → stop cleanly.
+    return _needs_human(job, store, controller, artifacts, reason, stage=stage)
+
+
 def _resolve_url(job: Job) -> str:
     """Map the job target to its configured URL ('' if unset)."""
     if (job.target or "").strip().lower() == "gemini":
@@ -164,11 +251,20 @@ def generate_in_browser(
     artifacts: Any | None = None,
     poll_timeout_s: int = 600,
     poll_interval_s: int = 5,
+    supervised: bool | None = None,
+    supervised_timeout_s: int | None = None,
+    notifier: Callable[[str], Any] | None = None,
 ) -> GenerationOutcome:
     """Run ONE conservative browser generation for ``job`` and continue the pipeline.
 
     See the module docstring for the full safety contract.  Returns a
     :class:`GenerationOutcome`; never raises for expected blocking situations.
+
+    When ``supervised`` (default from ``config.supervised_pause()``), a
+    human-solvable hard stop (CAPTCHA / verification / consent) does NOT end the
+    run: the worker notifies (with the noVNC link) and HOLDS the browser open,
+    polling until the human clears it in the live session, then continues. The
+    human still solves the challenge — nothing is auto-solved or bypassed.
     """
     # Lazy default wiring (kept out of the signature so tests inject fakes).
     if rate_limiter is None:
@@ -177,6 +273,21 @@ def generate_in_browser(
         rate_limiter = RateLimiter()
     if selectors_config is None:
         selectors_config = load_selector_config()
+    if supervised is None:
+        supervised = config.supervised_pause()
+    if supervised_timeout_s is None:
+        supervised_timeout_s = config.supervised_pause_timeout()
+    if notifier is None:
+        from social_video_factory.notify import notify as notifier  # type: ignore[assignment]
+    novnc_url = config.novnc_url()
+
+    def _hard_stop(key: str, reason: str, *, stage: str = "hard_stop") -> GenerationOutcome | None:
+        return _handle_hard_stop(
+            job, store, controller, artifacts, key,
+            supervised=supervised, notifier=notifier, novnc_url=novnc_url,
+            selectors_config=selectors_config, timeout_s=supervised_timeout_s,
+            reason=reason, stage=stage,
+        )
 
     # 1. RATE-LIMIT GATE FIRST — before the browser is ever opened.
     decision = rate_limiter.check()
@@ -234,9 +345,9 @@ def generate_in_browser(
         # 4. Hard-stop check immediately after navigation.
         hit = detect_hard_stop(_page_text(controller), selectors_config)
         if hit:
-            return _needs_human(
-                job, store, controller, artifacts, f"hard stop detected: {hit}"
-            )
+            stop = _hard_stop(hit, f"hard stop detected: {hit}")
+            if stop is not None:
+                return stop
 
         resolver = SelectorResolver(
             controller.page, selectors_config, job.target, controller
@@ -296,9 +407,9 @@ def generate_in_browser(
         # Re-check hard stops right after submit.
         hit = detect_hard_stop(_page_text(controller), selectors_config)
         if hit:
-            return _needs_human(
-                job, store, controller, artifacts, f"hard stop detected: {hit}"
-            )
+            stop = _hard_stop(hit, f"hard stop detected: {hit}")
+            if stop is not None:
+                return stop
 
         # 7. Wait for generation — re-check hard stops every iteration.
         deadline = time.monotonic() + poll_timeout_s
@@ -307,13 +418,12 @@ def generate_in_browser(
         while time.monotonic() < deadline:
             hit = detect_hard_stop(_page_text(controller), selectors_config)
             if hit:
-                return _needs_human(
-                    job,
-                    store,
-                    controller,
-                    artifacts,
-                    f"hard stop appeared during generation: {hit}",
+                stop = _hard_stop(
+                    hit, f"hard stop appeared during generation: {hit}"
                 )
+                if stop is not None:
+                    return stop
+                # Human cleared it in the live session — keep waiting for the result.
             if flow_prepared is not None:
                 flow_edit_url = flow_ui.new_result_edit_url(
                     controller.page,
