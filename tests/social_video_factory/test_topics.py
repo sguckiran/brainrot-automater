@@ -22,6 +22,7 @@ def test_no_topics_configured_returns_empty(monkeypatch):
 def test_rotation_advances_and_persists(monkeypatch):
     monkeypatch.setattr(config, "autopilot_topics", lambda: ["a", "b", "c"])
     monkeypatch.setattr(config, "autopilot_templates", lambda: ["t1", "t2"])
+    monkeypatch.setattr(topics, "generate_concept", lambda theme: theme)
 
     first = topics.next_topics(2)
     assert first == [("t1", "a"), ("t2", "b")]
@@ -44,4 +45,19 @@ def test_cursor_not_advanced_when_nothing_produced(monkeypatch):
     topics.next_topics(5)
     # Now configure topics; rotation should start at the beginning.
     monkeypatch.setattr(config, "autopilot_topics", lambda: ["a", "b"])
+    monkeypatch.setattr(topics, "generate_concept", lambda theme: theme)
     assert topics.next_topics(1) == [("t1", "a")]
+
+
+def test_rotation_expands_theme_into_fresh_concept(monkeypatch):
+    monkeypatch.setattr(config, "autopilot_topics", lambda: ["space cats"])
+    monkeypatch.setattr(config, "autopilot_templates", lambda: ["t1"])
+    monkeypatch.setattr(
+        topics,
+        "generate_concept",
+        lambda theme: f"fresh concept inspired by {theme}",
+    )
+
+    assert topics.next_topics(1) == [
+        ("t1", "fresh concept inspired by space cats")
+    ]

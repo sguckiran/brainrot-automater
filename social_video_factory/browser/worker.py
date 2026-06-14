@@ -293,7 +293,10 @@ def generate_in_browser(
     decision = rate_limiter.check()
     if not decision.allowed:
         reason = f"rate limited: {decision.reason}"
-        job.advance(JobStatus.GENERATING, note=reason)
+        # No browser was opened and no generation started. Keep the job in the
+        # pending queue so a later scheduled wake can retry after the local
+        # window/min-gap clears.
+        job.advance(JobStatus.PROMPTED, note=reason)
         store.save(job)
         return GenerationOutcome(
             status=STATUS_RATE_LIMITED, job_id=job.id, reason=decision.reason
@@ -363,7 +366,6 @@ def generate_in_browser(
                 )
                 prompt_box = flow_prepared.prompt_box
             except flow_ui.FlowUIError as exc:
-                resolver.manual_pause(str(exc))
                 return _needs_human(
                     job,
                     store,
@@ -395,6 +397,15 @@ def generate_in_browser(
         )
         prompt_present = prompt_box is None or _locator_has_value(prompt_box)
         if submit is None or not prompt_present or not _click(submit):
+            if flow_prepared is not None:
+                return _needs_human(
+                    job,
+                    store,
+                    controller,
+                    artifacts,
+                    "Flow submit control failed",
+                    stage="submit",
+                )
             resolver.manual_pause(
                 "could not submit automatically; press the generate/submit "
                 "control in the open browser window"
@@ -427,7 +438,7 @@ def generate_in_browser(
             if flow_prepared is not None:
                 flow_edit_url = flow_ui.new_result_edit_url(
                     controller.page,
-                    flow_prepared.baseline_video_count,
+                    flow_prepared.baseline_edit_urls,
                 )
                 if flow_edit_url is not None:
                     completed = True
@@ -442,6 +453,15 @@ def generate_in_browser(
             time.sleep(poll_interval_s)
 
         if not completed:
+            if flow_prepared is not None:
+                return _needs_human(
+                    job,
+                    store,
+                    controller,
+                    artifacts,
+                    "Flow generation timed out before a new result appeared",
+                    stage="generation_timeout",
+                )
             resolver.manual_pause(
                 "generation is taking too long; complete it (and download the "
                 "clip if needed) manually in the open browser window"
@@ -477,6 +497,15 @@ def generate_in_browser(
                 downloaded = None
 
         if downloaded is None:
+            if flow_prepared is not None:
+                return _needs_human(
+                    job,
+                    store,
+                    controller,
+                    artifacts,
+                    "Flow download could not be captured",
+                    stage="download",
+                )
             resolver.manual_pause(
                 "could not capture the download automatically; download the "
                 "finished clip (prefer MP4) in the open browser window"
@@ -509,6 +538,25 @@ def generate_in_browser(
         #     tail. Config-gated publishing may run after that tail.
         pipeline.run_import(job, store, src_path=downloaded)
         pipeline.finish_after_import(job, store)
+
+        if job.status in {
+            JobStatus.NEEDS_HUMAN.value,
+            JobStatus.PUBLISH_PARTIAL.value,
+        }:
+            blocked = [
+                f"{platform}: {result.get('reason') or result.get('status')}"
+                for platform, result in job.publish_results.items()
+                if result.get("status") != "published"
+            ]
+            reason = "publishing needs human attention"
+            if blocked:
+                reason += f" ({'; '.join(blocked)})"
+            return GenerationOutcome(
+                status=STATUS_NEEDS_HUMAN,
+                job_id=job.id,
+                downloaded_path=str(downloaded),
+                reason=reason,
+            )
 
         return GenerationOutcome(
             status=STATUS_SUCCESS, job_id=job.id, downloaded_path=str(downloaded)

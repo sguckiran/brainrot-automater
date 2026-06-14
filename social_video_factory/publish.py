@@ -136,6 +136,31 @@ def _set_files(page: Any, media_path: Path) -> None:
         raise PublishNeedsHuman("Could not find or use the video upload input.") from exc
 
 
+def _set_instagram_media(page: Any, media_path: Path) -> None:
+    """Upload through Instagram's eager input or lazy file-chooser UI."""
+    upload = page.locator("[role='dialog'] input[type='file']")
+    if upload.count() == 0:
+        upload = page.locator("input[type='file']")
+    if upload.count() > 0:
+        upload.first.set_input_files(str(media_path))
+        return
+
+    select_button = _role(
+        page,
+        "button",
+        [r"^Select from computer$"],
+        timeout_s=20,
+    )
+    try:
+        with page.expect_file_chooser(timeout=20000) as chooser_info:
+            select_button.click()
+        chooser_info.value.set_files(str(media_path))
+    except Exception as exc:
+        raise PublishNeedsHuman(
+            "Instagram's video file chooser could not be used."
+        ) from exc
+
+
 def _click_if_visible(locator: Any) -> bool:
     if not _visible(locator):
         return False
@@ -215,23 +240,18 @@ def _publish_instagram(
         raise PublishNeedsHuman("Instagram's New post (+) control was not found.")
     create.first.click()
 
-    upload = page.locator("[role='dialog'] input[type='file']")
-    if upload.count() == 0:
-        upload = page.locator("input[type='file']")
-    if upload.count() == 0:
-        raise PublishNeedsHuman("Instagram's hidden video upload input was not found.")
-    upload.first.set_input_files(str(media_path))
+    _set_instagram_media(page, media_path)
     page.wait_for_timeout(1500)
 
     # Instagram shows this once per account/browser profile.
     _click_if_visible(page.get_by_role("button", name="OK", exact=True))
 
-    crop_icon = _visible_match(
-        page.locator("[role='dialog'] svg[aria-label='Select Crop']")
+    crop_button = _first_visible(
+        page,
+        ["[role='dialog'] button:has(svg[aria-label='Select crop'])"],
+        timeout_s=10,
     )
-    if crop_icon is None:
-        raise PublishNeedsHuman("Instagram's crop control was not found.")
-    crop_icon.click()
+    crop_button.click()
     vertical = _first_visible(
         page,
         ["[role='dialog'] [role='button']:has-text('9:16')"],
@@ -366,11 +386,60 @@ def publish_job(
     if not source.is_file():
         raise RuntimeError("job has no finished rendered video to publish")
     selected = [_platform(p) for p in (platforms or config.publish_platforms())]
+    already_published = [
+        platform
+        for platform in selected
+        if job.publish_results.get(platform, {}).get("status") == "published"
+    ]
+    legacy_interrupted = job.status == JobStatus.PUBLISHING.value
+    uncertain = [
+        platform
+        for platform in selected
+        if job.publish_results.get(platform, {}).get("status") == "publishing"
+        or (
+            legacy_interrupted
+            and job.publish_results.get(platform, {}).get("status") is None
+        )
+    ]
+    pending = [
+        platform
+        for platform in selected
+        if platform not in already_published and platform not in uncertain
+    ]
+
+    if uncertain:
+        reason = (
+            "Previous publish was interrupted with an unknown external result; "
+            f"verify manually before retrying: {', '.join(uncertain)}"
+        )
+        for platform in uncertain:
+            job.publish_results[platform] = {
+                "status": "needs_human",
+                "reason": reason,
+            }
+        job.needs_human_reason = reason
+        job.advance(JobStatus.NEEDS_HUMAN, note=reason)
+        store.save(job)
+        return job
+
+    if not pending:
+        job.advance(
+            JobStatus.PUBLISHED,
+            note=f"already published to {', '.join(already_published)}; skipped",
+        )
+        store.save(job)
+        return job
+
     job.advance(JobStatus.APPROVED, note="publishing explicitly enabled in config")
-    job.advance(JobStatus.PUBLISHING, note=f"publishing to {', '.join(selected)}")
+    job.advance(JobStatus.PUBLISHING, note=f"publishing to {', '.join(pending)}")
     store.save(job)
 
-    for platform in selected:
+    for platform in pending:
+        # Persist before touching the website. If the process dies after the
+        # final click but before success is recorded, the next run must not
+        # blindly retry and create a duplicate post.
+        job.publish_results[platform] = {"status": "publishing"}
+        store.save(job)
         browser = (controllers or {}).get(platform) or controller_for(platform)
         try:
             browser.start()

@@ -105,6 +105,20 @@ User wants ~3/hr cadence and, on a CAPTCHA, to be pinged + shown the LIVE challe
 - **Tests**: `test_supervised_pause_waits_then_continues` (CAPTCHA clears → run continues to success, human pinged) and `test_supervised_pause_times_out_to_needs_human` (never clears → needs_human, no record). Suite: `132 passed, 1 skipped`; ruff clean; shell scripts `bash -n` ok; supervised defaults off.
 - **Boundary held**: declined automated CAPTCHA-solving / stealth / proxy rotation (circumvention of bot-detection). Built the compliant human-in-the-loop instead.
 
+## Phase 7c — live deployment to WSL2 Ubuntu — ✅ DONE (2026-06-14)
+
+Provisioned the user's existing WSL2 Ubuntu (26.04) end-to-end. Helpers added first: `doctor.py` (preflight) + `notify-test` CLI + `test_doctor.py` (136 passed, 1 skipped; ruff clean).
+
+- **Provisioning** (`scripts/social_video_factory/setup_wsl.sh`, run via stdin to dodge Git-Bash path mangling): apt (ffmpeg/xvfb/x11vnc/novnc/websockify/git/fonts), uv, repo clone, **minimal venv** (playwright+dotenv+yaml+fire+httpx — not the whole Hermes tree).
+- **Browser**: Playwright's bundled Chromium doesn't support Ubuntu 26.04, so drive **real Google Chrome** (.deb) via `SOCIAL_FACTORY_BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable`. Validated the real `get_controller()` launches it headless AND headed.
+- **Invisible display** (`setup_display_wsl.sh` → systemd units `svf-x11unix/xvfb/x11vnc/novnc`): headed Chrome on Xvfb `:99`, shared via x11vnc→noVNC on `localhost:6080`. Auto-starts on cold boot.
+- **WSLg conflict**: WSLg bind-mounts `/tmp/.X11-unix` **read-only** and re-stacks it on every session attach, blocking Xvfb. Fixed by **disabling WSLg** (`C:\Users\sinan\.wslconfig` → `[wsl2] guiApplications=false`; reversible). After that the whole stack is green (X99 socket, noVNC 200, all services active, headed controller OK).
+- **Scheduler**: Windows Task Scheduler task `social_video_factory_autopilot`, hourly, **created disabled** (runs `run_autopilot_wsl.sh` which waits for `:99` then runs one pass).
+- **Config**: env file `~/svf-autopilot.env` (secrets blank, unattended flags set); `social_video_factory` block appended to the user's existing `~/.hermes/config.yaml` (publishing OFF + topics empty by default; backup saved).
+- **Doctor (in WSL)**: 6 ok / 5 warn / 1 fail — remaining items are exactly the human-only ones (Flow/IG/TikTok logins, Telegram token, topics, enable publishing).
+- **Boundary**: still no CAPTCHA-solving/stealth; supervised-pause + noVNC live-view is the human-solves-it path.
+- **Uncommitted**: `doctor.py`, `notify.py`/`topics.py`/`autopilot.py` (committed earlier?), the WSL scripts, `test_doctor.py`, and the supervised-pause changes — user should `git add -A && commit`, then WSL updates via `git -C ~/brainrot-automater pull` + re-sync.
+
 ## Outstanding (optional, non-blocking) follow-ups
 - `hard_stops` `consent_policy_modal` defaults (`"we use cookies"`, `"i agree"`, `"accept all"`) scanned over full `html()` may false-positive on Google cookie banners → premature `needs_human`. Consider matching visible text and/or trimming the broadest consent phrases against the live UI.
 - The bundled `browser_selectors.example.yaml` selectors are deliberate placeholders; they must be tuned against the live Flow/Gemini UI (expected — the layered resolver + manual pause cover the gap meanwhile).

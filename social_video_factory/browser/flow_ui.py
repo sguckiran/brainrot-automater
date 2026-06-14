@@ -23,7 +23,7 @@ class PreparedFlowGeneration:
 
     prompt_box: Any
     submit: Any
-    baseline_video_count: int
+    baseline_edit_urls: frozenset[str]
 
 
 def _button_text(button: Any) -> str:
@@ -89,6 +89,20 @@ def _project_links(page: Any) -> list[str]:
     return result
 
 
+def _result_edit_urls(page: Any) -> set[str]:
+    """Return current generated-result detail URLs for the open project."""
+    links = page.locator("a[href*='/edit/']")
+    result: set[str] = set()
+    try:
+        for index in range(links.count()):
+            href = links.nth(index).get_attribute("href")
+            if href:
+                result.add(urljoin(page.url, href))
+    except Exception:
+        return set()
+    return result
+
+
 def _open_fresh_project(page: Any, flow_url: str, *, timeout_s: float) -> None:
     if "/fx/tools/flow/project/" in (getattr(page, "url", "") or ""):
         return
@@ -103,14 +117,22 @@ def _open_fresh_project(page: Any, flow_url: str, *, timeout_s: float) -> None:
         raise FlowUIError("Flow's New project control did not appear")
     new_project.click()
 
-    def _new_project_link() -> str | None:
+    def _opened_project() -> tuple[str, str | None] | None:
+        if (
+            "/fx/tools/flow/project/" in (getattr(page, "url", "") or "")
+            or _prompt_box(page) is not None
+        ):
+            return ("direct", None)
         links = _project_links(page)
-        return next((href for href in links if href not in existing), None)
+        href = next((value for value in links if value not in existing), None)
+        return ("link", href) if href else None
 
-    href = _wait_for(_new_project_link, timeout_s=timeout_s)
-    if href is None:
-        raise FlowUIError("Flow created no project card to open")
-    page.goto(urljoin(flow_url, href), wait_until="domcontentloaded", timeout=30000)
+    opened = _wait_for(_opened_project, timeout_s=timeout_s)
+    if opened is None:
+        raise FlowUIError("Flow did not open or create a project")
+    mode, href = opened
+    if mode == "link" and href:
+        page.goto(urljoin(flow_url, href), wait_until="domcontentloaded", timeout=30000)
 
 
 def _composer_summary(page: Any) -> Any | None:
@@ -182,21 +204,17 @@ def prepare_generation(
     return PreparedFlowGeneration(
         prompt_box=prompt_box,
         submit=submit,
-        baseline_video_count=page.locator("video").count(),
+        baseline_edit_urls=frozenset(_result_edit_urls(page)),
     )
 
 
-def new_result_edit_url(page: Any, baseline_video_count: int) -> str | None:
+def new_result_edit_url(
+    page: Any,
+    baseline_edit_urls: frozenset[str] | set[str],
+) -> str | None:
     """Return the detail URL once a new generated video card appears."""
-    videos = page.locator("video")
-    try:
-        if videos.count() <= baseline_video_count:
-            return None
-        link = videos.first.locator("xpath=ancestor::a[1]")
-        href = link.get_attribute("href")
-        return urljoin(page.url, href) if href else None
-    except Exception:
-        return None
+    current = _result_edit_urls(page)
+    return next(iter(current - set(baseline_edit_urls)), None)
 
 
 def download_from_detail(

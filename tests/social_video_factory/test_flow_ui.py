@@ -111,6 +111,10 @@ class FakePage:
             )
         if selector == "div[contenteditable='true'][role='textbox']":
             return FakeList([self.prompt] if self.state == "project" else [])
+        if selector == "a[href*='/edit/']":
+            return FakeList(
+                [video.ancestor for video in self.video_items if video.ancestor]
+            )
         if selector == "video":
             return FakeList(self.video_items)
         raise AssertionError(selector)
@@ -148,8 +152,35 @@ def test_prepare_generation_creates_project_and_configures_portrait(monkeypatch)
 
     assert page.url.endswith("/fx/tools/flow/project/new")
     assert prepared.prompt_box.filled == "orange cat prompt"
-    assert prepared.baseline_video_count == 0
+    assert prepared.baseline_edit_urls == frozenset()
     assert prepared.submit.inner_text() == "arrow_forward\nCreate"
+
+
+def test_prepare_generation_accepts_direct_editor_navigation(monkeypatch):
+    page = FakePage()
+    original_buttons = page._buttons
+
+    def direct_buttons():
+        if page.state == "list":
+            def open_editor():
+                page.state = "project"
+                page.url = "https://labs.google/fx/tools/flow/project/direct"
+
+            return [FakeElement("add_2\nNew project", on_click=open_editor)]
+        return original_buttons()
+
+    monkeypatch.setattr(page, "_buttons", direct_buttons)
+    monkeypatch.setattr(flow_ui.time, "sleep", lambda _seconds: None)
+
+    prepared = flow_ui.prepare_generation(
+        page,
+        "https://labs.google/fx/tools/flow",
+        "direct editor prompt",
+        timeout_s=1,
+    )
+
+    assert page.url.endswith("/project/direct")
+    assert prepared.prompt_box.filled == "direct editor prompt"
 
 
 def test_new_result_url_comes_from_video_card():
@@ -159,8 +190,16 @@ def test_new_result_url_comes_from_video_card():
     link = FakeElement(attrs={"href": "/fx/tools/flow/project/new/edit/result"})
     page.video_items = [FakeElement(ancestor=link)]
 
-    assert flow_ui.new_result_edit_url(page, 0).endswith("/edit/result")
-    assert flow_ui.new_result_edit_url(page, 1) is None
+    assert flow_ui.new_result_edit_url(page, frozenset()).endswith("/edit/result")
+    assert (
+        flow_ui.new_result_edit_url(
+            page,
+            {
+                "https://labs.google/fx/tools/flow/project/new/edit/result",
+            },
+        )
+        is None
+    )
 
 
 def test_download_from_detail_uses_detail_download_button(tmp_path, monkeypatch):

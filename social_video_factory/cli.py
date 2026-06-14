@@ -75,53 +75,41 @@ def show_job(job_id: str) -> None:
 
 
 def browser_login(target: str = "flow", url: str | None = None) -> None:
-    """Open the persistent Chromium profile so you can log in manually.
+    """Log in manually in a NORMAL (non-automated) Chrome on the profile dir.
 
-    Opens Flow / Gemini in your own browser profile, waits for you to sign in by
-    hand, then exits — the persistent profile dir captures the session
-    automatically.  We never touch / store / log cookies or tokens ourselves,
-    and we NEVER bypass login.
+    Google/Instagram/TikTok refuse sign-in inside an automation-controlled
+    browser ("this browser may not be secure"), so login MUST happen in a plain
+    Chrome. We launch one on the SAME persistent profile the automation reuses;
+    you sign in by hand (view it via the noVNC link), then later runs reuse that
+    saved session and never log in themselves. We never bypass login.
 
     Args:
-        target: ``flow`` (default) or ``gemini`` — picks which URL to open.
-        url: explicit URL to open; overrides the configured ``target`` URL.
+        target: ``flow`` (default), ``gemini``, ``instagram`` or ``tiktok``.
+        url: explicit URL to open; overrides the target's default.
     """
-    if target in {"instagram", "tiktok"}:
-        from social_video_factory.publish import login
+    from social_video_factory import manual_login as ml
 
-        login(target)
-        return
-
-    # Imported here so the module stays importable without the browser deps.
-    from social_video_factory.browser import BrowserUnavailable, get_controller
-
-    resolved = (url or "").strip()
-    if not resolved:
-        resolved = config.gemini_url() if target == "gemini" else config.flow_url()
-    if not resolved:
-        env_var = (
-            config.ENV_GEMINI_URL if target == "gemini" else config.ENV_FLOW_URL
-        )
-        print(
-            f"No URL configured for target {target!r}. "
-            f"Set {env_var} (or pass --url) and try again.",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-
-    controller = get_controller()
     try:
-        controller.start()
-        controller.goto(resolved)
-        controller.wait_for_enter(
-            "Log in manually in the opened browser, then press Enter here "
-            "to save the session and exit..."
-        )
-    except BrowserUnavailable as exc:
+        if url and target.strip().lower() in {"flow", "gemini"}:
+            # Honor an explicit URL override for the generation targets.
+            profile = config.profile_dir()
+            exe = config.browser_executable_path() or "google-chrome-stable"
+            import subprocess
+
+            cmd = ml.build_chrome_command(exe, profile, url.strip())
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                input(
+                    "A normal Chrome window has opened on the virtual display.\n"
+                    "View it at your noVNC link, sign in, then press Enter here..."
+                )
+            finally:
+                proc.terminate()
+            return
+        ml.manual_login(target)
+    except ValueError as exc:
         print(str(exc), file=sys.stderr)
-        raise SystemExit(1) from exc
-    finally:
-        controller.close()
+        raise SystemExit(2) from exc
 
 
 def browser_generate(job_id: str) -> None:
@@ -316,6 +304,42 @@ def autopilot(target_pending: int | None = None, per_run_limit: int | None = Non
     print(result.summary)
 
 
+def doctor() -> None:
+    """Preflight: report what's ready vs missing before enabling the loop.
+
+    Checks dependencies (ffmpeg/Playwright), the generation target URL, seeded
+    logins, notification creds, supervised-pause/noVNC, and the publishing +
+    autopilot config. Exits non-zero if any hard check FAILS so it's usable as a
+    gate in a setup script. Never prints secret values.
+    """
+    from social_video_factory import doctor as doctor_mod
+
+    checks = doctor_mod.run_checks()
+    symbol = {doctor_mod.OK: "OK  ", doctor_mod.WARN: "WARN", doctor_mod.FAIL: "FAIL"}
+    for c in checks:
+        print(f"[{symbol[c.level]}] {c.name}: {c.detail}")
+    ok, warn, fail = doctor_mod.summarize(checks)
+    print(f"\n{ok} ok, {warn} warning(s), {fail} failure(s)")
+    if fail:
+        raise SystemExit(1)
+
+
+def notify_test(message: str = "social_video_factory: test notification ✅") -> None:
+    """Send a test alert to confirm Telegram/Discord delivery works."""
+    from social_video_factory.notify import notify as _notify
+
+    sent = _notify(message)
+    if sent:
+        print("sent: a test notification went out to your configured channel(s).")
+    else:
+        print(
+            "NOT sent: no channel configured (set TELEGRAM_BOT_TOKEN + "
+            "TELEGRAM_HOME_CHANNEL, or SOCIAL_FACTORY_DISCORD_WEBHOOK).",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+
 def main() -> None:
     """Entry point used by ``__main__`` and ``python -m ...cli``."""
     fire.Fire(
@@ -329,6 +353,8 @@ def main() -> None:
             "import-latest-browser-download": import_latest_browser_download,
             "publish-job": publish_job,
             "autopilot": autopilot,
+            "doctor": doctor,
+            "notify-test": notify_test,
         }
     )
 

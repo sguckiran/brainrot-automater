@@ -157,7 +157,7 @@ def _mock_flow_ui(monkeypatch, locators):
         return flow_ui.PreparedFlowGeneration(
             prompt_box=locators["prompt_box"],
             submit=locators["submit"],
-            baseline_video_count=0,
+            baseline_edit_urls=frozenset(),
         )
 
     monkeypatch.setattr(
@@ -208,6 +208,51 @@ def test_happy_path_reaches_awaiting_approval(monkeypatch):
     assert resolver._locators["prompt_box"].filled == job.prompt
 
 
+def test_publish_failure_returns_needs_human_outcome(monkeypatch):
+    store = JobStore()
+    job = _make_job()
+    store.save(job)
+
+    controller = FakeController()
+    rl = FakeRateLimiter()
+    locators = _full_locators()
+    resolver = FakeResolver(locators=locators)
+    _mock_flow_ui(monkeypatch, locators)
+    monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
+
+    def _blocked_publish(current_job, current_store):
+        current_job.publish_results = {
+            "instagram": {
+                "status": "needs_human",
+                "reason": "verification required",
+            },
+            "tiktok": {"status": "published"},
+        }
+        current_job.advance(JobStatus.PUBLISH_PARTIAL)
+        current_store.save(current_job)
+
+    monkeypatch.setattr(
+        worker_mod.pipeline,
+        "finish_after_import",
+        _blocked_publish,
+    )
+
+    outcome = generate_in_browser(
+        job,
+        store,
+        controller=controller,
+        rate_limiter=rl,
+        selectors_config={},
+        poll_timeout_s=5,
+        poll_interval_s=0,
+    )
+
+    assert outcome.status == "needs_human"
+    assert "instagram: verification required" in (outcome.reason or "")
+    assert outcome.downloaded_path is not None
+    assert rl.records == 1
+
+
 def test_hard_stop_marks_needs_human_no_record(monkeypatch):
     store = JobStore()
     job = _make_job()
@@ -246,6 +291,9 @@ def test_rate_limited_never_starts_browser(monkeypatch):
     assert outcome.status == "rate_limited"
     assert controller.started is False  # browser NEVER opened
     assert rl.records == 0
+    reloaded = JobStore().load(job.id)
+    assert reloaded.status == JobStatus.PROMPTED.value
+    assert "rate limited" in (reloaded.history[-1]["note"] or "")
 
 
 def test_human_confirm_declined_returns_needs_human(monkeypatch):
@@ -293,6 +341,113 @@ def test_prompt_box_miss_falls_back_to_manual_pause(monkeypatch):
     assert any("paste this prompt" in m for m in manual_log)
     assert outcome.status == "success"
     assert rl.records == 1
+
+
+def test_flow_ui_error_stops_without_reading_stdin(monkeypatch):
+    store = JobStore()
+    job = _make_job()
+    store.save(job)
+
+    controller = FakeController()
+    rl = FakeRateLimiter()
+    manual_log: list[str] = []
+    resolver = FakeResolver(locators=_full_locators(), manual_log=manual_log)
+    monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
+    monkeypatch.setattr(
+        flow_ui,
+        "prepare_generation",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            flow_ui.FlowUIError("editor changed")
+        ),
+    )
+
+    outcome = generate_in_browser(
+        job,
+        store,
+        controller=controller,
+        rate_limiter=rl,
+        selectors_config={},
+    )
+
+    assert outcome.status == "needs_human"
+    assert "editor changed" in (outcome.reason or "")
+    assert manual_log == []
+    assert rl.records == 0
+
+
+def test_flow_timeout_stops_without_reading_stdin(monkeypatch):
+    store = JobStore()
+    job = _make_job()
+    store.save(job)
+
+    controller = FakeController()
+    rl = FakeRateLimiter()
+    manual_log: list[str] = []
+    locators = _full_locators()
+    resolver = FakeResolver(locators=locators, manual_log=manual_log)
+    _mock_flow_ui(monkeypatch, locators)
+    monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
+    monkeypatch.setattr(flow_ui, "new_result_edit_url", lambda *_a, **_k: None)
+
+    outcome = generate_in_browser(
+        job,
+        store,
+        controller=controller,
+        rate_limiter=rl,
+        selectors_config={},
+        poll_timeout_s=0,
+        poll_interval_s=0,
+    )
+
+    assert outcome.status == "needs_human"
+    assert "timed out" in (outcome.reason or "")
+    assert manual_log == []
+    assert rl.records == 0
+
+
+def test_flow_download_failure_stops_without_using_stale_file(monkeypatch):
+    store = JobStore()
+    job = _make_job()
+    store.save(job)
+
+    controller = FakeController()
+    rl = FakeRateLimiter()
+    manual_log: list[str] = []
+    locators = _full_locators()
+    resolver = FakeResolver(locators=locators, manual_log=manual_log)
+    _mock_flow_ui(monkeypatch, locators)
+    monkeypatch.setattr(worker_mod, "SelectorResolver", lambda *a, **k: resolver)
+    monkeypatch.setattr(
+        flow_ui,
+        "download_from_detail",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            flow_ui.FlowUIError("download changed")
+        ),
+    )
+    stale_lookup_called = False
+
+    def _stale_lookup(_path):
+        nonlocal stale_lookup_called
+        stale_lookup_called = True
+        return Path("stale.mp4")
+
+    monkeypatch.setattr(worker_mod.media, "find_latest_download", _stale_lookup)
+
+    outcome = generate_in_browser(
+        job,
+        store,
+        controller=controller,
+        rate_limiter=rl,
+        selectors_config={},
+        poll_timeout_s=5,
+        poll_interval_s=0,
+    )
+
+    assert outcome.status == "needs_human"
+    assert "download" in (outcome.reason or "").lower()
+    assert manual_log == []
+    assert stale_lookup_called is False
+    assert rl.records == 0
 
 
 def test_no_url_configured_returns_error(monkeypatch):

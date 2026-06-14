@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 from social_video_factory import config
+from social_video_factory.concepts import generate_concept
 
 _CURSOR_FILENAME = "autopilot_cursor.json"
 
@@ -71,7 +72,8 @@ def next_topics(n: int) -> list[tuple[str, str]]:
     for offset in range(n):
         index = cursor + offset
         template = templates[index % len(templates)]
-        topic = topics[index % len(topics)]
+        theme = topics[index % len(topics)]
+        topic = generate_concept(theme)
         pairs.append((template, topic))
     _write_cursor(cursor + len(pairs))
     return pairs

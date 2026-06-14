@@ -1,0 +1,4 @@
+interface:
+  display_name: "Viral Video Concepts"
+  short_description: "Create distinct short-video concepts"
+  default_prompt: "Use $create-viral-video-concepts to create a fresh short-video concept that differs from recent posts."
