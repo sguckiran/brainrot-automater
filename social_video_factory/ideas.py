@@ -18,10 +18,12 @@ def build_idea(template: str, topic: str) -> str:
 
     Pure function: same inputs always yield the same idea.
     """
-    template_label = template.replace("_", " ").strip() or "short video"
     topic_label = topic.strip() or "something delightfully chaotic"
+    # The topic IS the concept (built by ``concepts.py``), so we present it
+    # as-is and add a short hook framing rather than re-wrapping it in an
+    # "about ..." clause (which reads broken for full-sentence concepts).
     return (
-        f"A punchy vertical short in the '{template_label}' style about "
-        f"{topic_label}, designed to hook viewers in the first second and keep "
-        f"them watching to the end."
+        f"{topic_label} "
+        f"Engineered to hook viewers in the first second and keep them watching "
+        f"to the very end."
     )

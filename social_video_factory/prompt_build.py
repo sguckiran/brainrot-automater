@@ -18,14 +18,16 @@ def build_prompt(template: str, topic: str, idea: str, script: str) -> str:
     Pure function combining template/topic/idea into explicit shot direction
     plus the 9:16 framing and pacing cues a generator needs.
     """
-    template_label = template.replace("_", " ").strip() or "cinematic short"
-    topic_label = topic.strip() or "an unexpected moment"
+    # ``idea`` already opens with the full concept (which carries its own style,
+    # pacing, treatment and camera), so we use it once here and only add 9:16
+    # framing. We deliberately do NOT impose a fixed style or "fast cuts" — that
+    # would override a slow, dialogue-driven concept (e.g. talking fruit) with
+    # action-video pacing. ``topic`` is folded in via ``idea`` to avoid repeating
+    # the (now full-sentence) concept twice.
+    idea_text = idea.strip() or topic.strip() or "an unexpected moment"
     return (
-        f"Vertical 9:16 short-form video. Style: {template_label}. "
-        f"Subject: {topic_label}. "
-        f"Concept: {idea} "
-        "High energy, fast cuts, vivid saturated colors, dynamic camera motion, "
-        "centered subject framed for a 1080x1920 portrait canvas, "
-        "first-second visual hook, looping-friendly ending. "
+        f"Vertical 9:16 short-form video. {idea_text} "
+        "Centered subject framed for a 1080x1920 portrait canvas, "
+        "strong first-second visual hook, looping-friendly ending. "
         "No on-screen text (captions are added in post)."
     )
